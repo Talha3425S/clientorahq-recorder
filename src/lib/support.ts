@@ -16,6 +16,7 @@ export function checkSupport(): Support {
   if (typeof AudioContext === 'undefined') {
     return { ok: false, reason: 'This browser cannot mix microphone and screen audio. Use a current version of Chrome, Edge or Firefox.' };
   }
+  
   return { ok: true };
 }
 
