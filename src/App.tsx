@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { describeError } from './lib/capture';
 import { RecorderSession, type State } from './lib/recorder';
-import { IdbSink, requestPersistence, saveRecording } from './lib/db.ts';
+import { IdbSink, requestPersistence, saveRecording } from './lib/db';
 import { checkSupport } from './lib/support';
 import Library from './Library';
 
@@ -36,7 +36,7 @@ export default function App() {
       setLevel(session.current?.level() ?? 0);
       raf = requestAnimationFrame(loop);
     };
-    loop();
+    raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
   }, [state]);
 
