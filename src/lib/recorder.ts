@@ -7,7 +7,7 @@ import { createTicker } from './ticker';
 
 export type State = 'ready' | 'countdown' | 'recording' | 'paused' | 'saving' | 'closed';
 export interface Options { mic?: boolean; camera?: boolean; limitSec?: number; warnSec?: number; fps?: number }
-export interface Result { blob: Blob; mimeType: string; durationMs: number }
+export interface Result { id: string; blob: Blob; mimeType: string; durationMs: number }
 export interface Handlers {
   onState?: (s: State) => void;
   onCount?: (n: number) => void;
@@ -132,7 +132,7 @@ export class RecorderSession {
     const blob = await this.sink.finish(type);
     this.release();
     this.setState('closed');
-    this.h.onDone?.({ blob, mimeType: type, durationMs: ms });
+    this.h.onDone?.({ id: this.sink.id ?? crypto.randomUUID(), blob, mimeType: type, durationMs: ms });
   }
 
   /** Throw the take away and count down again, keeping the same screen and mic. */
