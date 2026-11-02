@@ -9,7 +9,7 @@ export interface RecordingMeta {
   durationMs: number;
   mimeType: string;
   size: number;
-  thumb: Blob | null;
+  thumb: string | null; // data URL, so there is no blob URL to manage
 }
 
 interface Schema extends DBSchema {
