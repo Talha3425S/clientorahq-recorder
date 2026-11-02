@@ -2,7 +2,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { describeError } from './lib/capture';
 import { RecorderSession, type State } from './lib/recorder';
+import { IdbSink, requestPersistence, saveRecording } from './lib/db.ts';
 import { checkSupport } from './lib/support';
+import Library from './Library';
 
 const fmt = (ms: number) => {
   const s = Math.floor(ms / 1000);
@@ -20,6 +22,7 @@ export default function App() {
   const [level, setLevel] = useState(0);
   const [msgs, setMsgs] = useState<string[]>([]);
   const [url, setUrl] = useState<string | null>(null);
+  const [libKey, setLibKey] = useState(0);
 
   useEffect(() => () => {
     session.current?.cancel();
@@ -43,17 +46,24 @@ export default function App() {
   const live = state === 'recording' || state === 'paused';
 
   const prepare = async () => {
+    void requestPersistence();
     const next = await RecorderSession.prepare({}, {
       onState: (st) => { setState(st); if (st === 'closed') setShared(false); },
       onCount: setCount,
       onTime: setTime,
       onLimitWarning: (n) => setMsgs([`Recording ends in ${n} seconds.`]),
-      onDone: (r) => {
+      onDone: async (r) => {
         if (urlRef.current) URL.revokeObjectURL(urlRef.current);
         urlRef.current = URL.createObjectURL(r.blob);
         setUrl(urlRef.current);
+        try {
+          await saveRecording(r);
+          setLibKey((k) => k + 1);
+        } catch {
+          setMsgs(['Could not save to the library. The browser may be out of storage.']);
+        }
       },
-    });
+    }, () => new IdbSink());
     session.current = next;
     setMsgs(next.notices);
     setState(next.state);
@@ -93,6 +103,7 @@ export default function App() {
           <a href={url} download="recording">Download</a>
         </>
       )}
+      <Library refreshKey={libKey} />
     </main>
   );
 }
