@@ -1,75 +1,33 @@
-# React + TypeScript + Vite
+# ClientoraHQ Recorder
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A browser based screen recorder built with React, TypeScript, and Vite. Screen video, microphone audio, and the optional camera bubble are composed locally; recordings are stored in IndexedDB and are not uploaded.
 
-Currently, two official plugins are available:
+## Run locally
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```sh
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
+Open the local Vite URL in a desktop browser. Screen capture requires a secure context; `localhost` is supported. To create a production build, run `npm run build`.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Features
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+- Capture a screen, application window, or browser tab with microphone and optional system/tab audio.
+- Optional round camera bubble, with corner placement and camera controls.
+- Microphone level meter, 3 second countdown, pause/resume, restart, cancel, elapsed timer, and a 5 minute default limit with a 30 second warning.
+- Preview and trim the recording, edit its title, save it to the library, or export it as WebM or MP4 when the browser supports that format.
+- Local IndexedDB library with thumbnails, dates, durations, playback, rename, download, and delete.
+- Permission and device errors are shown in the UI. Stopping screen sharing ends the recording and releases capture tracks.
 
-```
+## Browser coverage
+
+Designed for current desktop Chrome, Edge, and Firefox. This project has not yet been manually tested across those browsers; screen capture audio and MP4 support depend on each browser and the choices made in its share dialog. Mobile browsers that do not provide `getDisplayMedia` show a compatibility message.
+
+## Known improvements
+
+- Run and document a manual browser matrix for Chrome, Edge, and Firefox, including audio synchronization and trim output.
+- Add automated browser tests for the recorder lifecycle and IndexedDB library.
+- Add optional hosted sharing only after explicit storage and privacy requirements are defined.
+
+All recording and trimming happens in the browser. The app does not send recordings to a server.

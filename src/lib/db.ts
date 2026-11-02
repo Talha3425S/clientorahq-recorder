@@ -102,6 +102,22 @@ export async function renameRecording(id: string, title: string) {
   if (meta) await db.put('meta', { ...meta, title });
 }
 
+export async function replaceRecordingVideo(id: string, blob: Blob, durationMs: number, mimeType: string) {
+  const db = await getDb();
+  const existing = await db.get('meta', id);
+  if (!existing) throw new Error('This recording is no longer in the library.');
+  const updated: RecordingMeta = {
+    ...existing,
+    durationMs,
+    mimeType,
+    size: blob.size,
+    thumb: await makeThumbnail(blob),
+  };
+  const tx = db.transaction(['meta', 'videos'], 'readwrite');
+  await Promise.all([tx.objectStore('meta').put(updated), tx.objectStore('videos').put(blob, id), tx.done]);
+  return updated;
+}
+
 export async function deleteRecording(id: string) {
   const db = await getDb();
   const tx = db.transaction(['meta', 'videos'], 'readwrite');

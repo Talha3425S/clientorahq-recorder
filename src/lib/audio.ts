@@ -7,7 +7,7 @@ export class AudioMixer {
 
   constructor() {
     this.analyser.fftSize = 1024;
-    void this.ctx.resume();
+    void this.ctx.resume().catch(() => undefined);
   }
 
   get stream(): MediaStream {

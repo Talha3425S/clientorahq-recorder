@@ -1,18 +1,19 @@
 import { AudioMixer } from './audio';
-import { describeError, getCamera, getMic, getScreen, stopStream } from './capture';
+import { describeError, getCamera, getMic, getScreen, stopStream, type CaptureSurface } from './capture';
 import { Compositor, type Corner } from './compositor';
 import { MemorySink, type ChunkSink } from './sink';
 import { pickMimeType } from './support';
 import { createTicker } from './ticker';
 
 export type State = 'ready' | 'countdown' | 'recording' | 'paused' | 'saving' | 'closed';
-export interface Options { mic?: boolean; camera?: boolean; limitSec?: number; warnSec?: number; fps?: number }
+export interface Options { mic?: boolean; micDeviceId?: string; camera?: boolean; limitSec?: number; warnSec?: number; fps?: number }
 export interface Result { id: string; blob: Blob; mimeType: string; durationMs: number }
 export interface Handlers {
   onState?: (s: State) => void;
   onCount?: (n: number) => void;
   onTime?: (elapsedMs: number, limitMs: number) => void;
   onLimitWarning?: (secondsLeft: number) => void;
+  onError?: (message: string) => void;
   onDone?: (r: Result) => void;
 }
 
@@ -52,7 +53,7 @@ export class RecorderSession {
     const s = new RecorderSession({ mic: true, camera: true, limitSec: 300, warnSec: 30, fps: 30, ...o }, h, makeSink);
     if (s.opts.mic) {
       try {
-        s.mic = await getMic();
+        s.mic = await getMic(s.opts.micDeviceId);
         s.mixer.addMic(s.mic);
       } catch (e) {
         s.notices.push(describeError(e, 'microphone').message); // keep going without a mic
@@ -69,22 +70,34 @@ export class RecorderSession {
   }
 
   get hasScreen() { return this.comp !== null; }
+  get screenStream() { return this.screen; }
+  get hasMic() { return Boolean(this.mic?.getAudioTracks().some((track) => track.readyState === 'live')); }
   level() { return this.mixer.level(); }
   setCamera(on: boolean) { if (this.comp) this.comp.camOn = on; }
   setCorner(c: Corner) { if (this.comp) this.comp.corner = c; }
 
   /** Throws a DOMException; pass it to describeError(e, 'screen'). */
-  async shareScreen() {
+  async shareScreen(surface: CaptureSurface = 'monitor', includeAudio = true, corner: Corner = 'br') {
     this.dropScreen();
-    const screen = await getScreen();
+    const screen = await getScreen(surface, includeAudio);
+    if (this.state !== 'ready') {
+      stopStream(screen);
+      return;
+    }
     try {
       const comp = new Compositor(screen, this.cam, this.opts.fps);
-      await comp.start();
+      comp.corner = corner;
       this.screen = screen;
       this.comp = comp;
+      await comp.start();
+      if (this.state !== 'ready' || screen.getVideoTracks().every((track) => track.readyState === 'ended')) {
+        this.dropScreen();
+        return;
+      }
       this.mixer.addSystem(screen);
       screen.getVideoTracks()[0].addEventListener('ended', () => this.sourceEnded(screen)); // "Stop sharing" in the browser bar
     } catch (e) {
+      this.dropScreen();
       stopStream(screen);
       throw e;
     }
@@ -124,15 +137,23 @@ export class RecorderSession {
     const ms = this.elapsed();
     this.setState('saving');
     this.stopTick?.();
-    await new Promise<void>((res) => {
-      mr.onstop = () => res();
-      mr.stop(); // fires a last dataavailable first
-    });
-    const type = (mr.mimeType || 'video/webm').split(';')[0];
-    const blob = await this.sink.finish(type);
-    this.release();
-    this.setState('closed');
-    this.h.onDone?.({ id: this.sink.id ?? crypto.randomUUID(), blob, mimeType: type, durationMs: ms });
+    try {
+      await new Promise<void>((res, reject) => {
+        mr.onstop = () => res();
+        mr.onerror = () => reject(new Error('The browser could not finish recording.'));
+        try { mr.stop(); } catch (e) { reject(e instanceof Error ? e : new Error('The browser could not finish recording.')); }
+      });
+      const type = (mr.mimeType || 'video/webm').split(';')[0];
+      const blob = await this.sink.finish(type);
+      this.release();
+      this.setState('closed');
+      this.h.onDone?.({ id: this.sink.id ?? crypto.randomUUID(), blob, mimeType: type, durationMs: ms });
+    } catch {
+      void this.sink.discard();
+      this.release();
+      this.h.onError?.('Could not save the recording. Check browser storage and try again.');
+      this.setState('closed');
+    }
   }
 
   /** Throw the take away and count down again, keeping the same screen and mic. */
@@ -163,17 +184,25 @@ export class RecorderSession {
 
   private startRecording() {
     if (!this.comp) return;
-    const out = new MediaStream([...this.comp.stream.getVideoTracks(), ...this.mixer.stream.getAudioTracks()]);
-    this.sink = this.makeSink();
-    const mr = new MediaRecorder(out, { mimeType: pickMimeType(), videoBitsPerSecond: 4_000_000, audioBitsPerSecond: 128_000 });
-    mr.ondataavailable = (e) => { if (e.data.size) void this.sink.add(e.data); };
-    mr.start(1000); // timeslice: a chunk every second
-    this.mr = mr;
-    this.before = 0;
-    this.segStart = performance.now();
-    this.warned = false;
-    this.setState('recording');
-    this.stopTick = createTicker(4, () => this.tick());
+    try {
+      const out = new MediaStream([...this.comp.stream.getVideoTracks(), ...this.mixer.stream.getAudioTracks()]);
+      this.sink = this.makeSink();
+      const mimeType = pickMimeType();
+      if (!mimeType) throw new Error('This browser cannot record a supported video format.');
+      const mr = new MediaRecorder(out, { mimeType, videoBitsPerSecond: 4_000_000, audioBitsPerSecond: 128_000 });
+      mr.ondataavailable = (e) => { if (e.data.size) void this.sink.add(e.data); };
+      mr.start(1000); // timeslice: a chunk every second
+      this.mr = mr;
+      this.before = 0;
+      this.segStart = performance.now();
+      this.warned = false;
+      this.setState('recording');
+      this.stopTick = createTicker(2, () => this.tick());
+    } catch {
+      this.release();
+      this.h.onError?.('Could not start recording in this browser. Try a different browser or restart the capture.');
+      this.setState('closed');
+    }
   }
 
   private elapsed() {
@@ -208,6 +237,11 @@ export class RecorderSession {
   private release() {
     this.stopTick?.();
     this.stopTick = null;
+    if (this.mr && this.mr.state !== 'inactive') {
+      this.mr.ondataavailable = null;
+      this.mr.onstop = null;
+      try { this.mr.stop(); } catch { /* capture teardown continues */ }
+    }
     this.dropScreen();
     stopStream(this.mic);
     stopStream(this.cam);

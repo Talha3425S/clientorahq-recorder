@@ -1,10 +1,13 @@
 export type Kind = 'screen' | 'microphone' | 'camera';
+export type CaptureSurface = 'monitor' | 'window' | 'browser';
 
-export const getScreen = () =>
-  navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: true }); // audio only where the browser allows it
+export const getScreen = (surface: CaptureSurface = 'monitor', includeAudio = true) =>
+  navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30, displaySurface: surface }, audio: includeAudio });
 
-export const getMic = () =>
-  navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+export const getMic = (deviceId?: string) =>
+  navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: true, noiseSuppression: true, ...(deviceId ? { deviceId: { exact: deviceId } } : {}) },
+  });
 
 export const getCamera = () =>
   navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' } });

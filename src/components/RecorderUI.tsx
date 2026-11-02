@@ -1,12 +1,9 @@
-import type { ReactNode } from 'react';
+import { useRef } from 'react';
 import { LIMIT_SEC, type Recorder } from '../hooks/useRecorder';
 import type { Corner } from '../lib/compositor';
 import { fmtTime } from '../lib/format';
 import * as I from './Icons';
 
-const btn = 'inline-flex items-center gap-2 rounded-lg px-4 py-2.5 font-semibold disabled:opacity-50';
-const ghost = `${btn} bg-white/10 hover:bg-white/20`;
-const kbd = 'rounded bg-white/15 px-1.5 py-0.5 font-mono text-sm';
 const CORNERS: { id: Corner; label: string; glyph: string }[] = [
   { id: 'tl', label: 'top left', glyph: '↖' },
   { id: 'tr', label: 'top right', glyph: '↗' },
@@ -14,84 +11,96 @@ const CORNERS: { id: Corner; label: string; glyph: string }[] = [
   { id: 'br', label: 'bottom right', glyph: '↘' },
 ];
 
-const Overlay = ({ children }: { children: ReactNode }) => (
-  <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-ink p-6 text-center text-white">{children}</div>
-);
-
-export default function RecorderUI({ r }: { r: Recorder }) {
+export default function RecorderUI({ r, libraryCount = 0 }: { r: Recorder; libraryCount?: number }) {
   if (r.phase === 'idle') return null;
-  if (r.phase === 'ready') return <Setup r={r} />;
+  if (r.phase === 'ready') return <Setup r={r} libraryCount={libraryCount} />;
   if (r.phase === 'countdown') {
     return (
-      <Overlay>
-        <p className="text-white/70">Recording starts in</p>
-        <p aria-live="assertive" className="text-[10rem] leading-none font-bold">{r.count || ''}</p>
-      </Overlay>
+      <div className="rec-countdown-overlay">
+        <p className="rec-countdown-title">Counting down</p>
+        <div className="rec-countdown-ring" aria-live="assertive">{r.count || ''}</div>
+        <p className="rec-countdown-label">Recording starts in {r.count || 1}…</p>
+        <button onClick={r.cancel} className="rec-countdown-cancel">Cancel <kbd>Esc</kbd></button>
+      </div>
     );
   }
   return <Live r={r} />;
 }
 
-function Setup({ r }: { r: Recorder }) {
+function Setup({ r, libraryCount }: { r: Recorder; libraryCount: number }) {
   const stream = r.camOn ? r.camStream : null;
+  const microphoneRef = useRef<HTMLSelectElement>(null);
   return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center bg-ink/60 p-4"
-      onKeyDown={(e) => { if (e.key === 'Escape') r.cancel(); }}
-    >
-      <div role="dialog" aria-modal="true" aria-labelledby="new-video" className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-        <div className="flex items-center justify-between">
-          <h2 id="new-video" className="text-xl font-bold">New video</h2>
-          <button onClick={r.cancel} aria-label="Close" className="rounded-lg p-2 text-muted hover:bg-wash"><I.Close /></button>
-        </div>
+    <div className="rec-setup-screen">
+      <header className="rec-setup-header">
+        <div className="rec-setup-brand"><span>C</span><strong>ClientoraHQ Recorder</strong></div>
+        <nav aria-label="Recorder pages">
+          <button aria-current="page" className="is-active">Record</button>
+          <button onClick={r.cancel}>Library ({libraryCount})</button>
+        </nav>
+      </header>
+      <main className="rec-setup-main">
+        <section className="rec-preview" aria-label="Recording preview">
+          <span className="rec-ready-pill">Ready</span>
+          <p>Your screen preview appears here</p>
+          {stream ? <video
+            ref={(el) => { if (el && el.srcObject !== stream) el.srcObject = stream; }}
+            autoPlay muted playsInline aria-label="Camera preview" className="rec-camera-preview"
+          /> : <span className="rec-camera-placeholder">{r.camOn ? 'TJ' : 'Camera off'}</span>}
+        </section>
 
-        <div className="mt-5 grid place-items-center">
-          {stream ? (
-            <video
-              ref={(el) => { if (el && el.srcObject !== stream) el.srcObject = stream; }}
-              autoPlay muted playsInline aria-label="Camera preview"
-              className="size-28 -scale-x-100 rounded-full object-cover ring-4 ring-tint"
-            />
-          ) : (
-            <div className="grid size-28 place-items-center rounded-full bg-wash text-sm text-muted">
-              {r.camOn ? 'No camera' : 'Camera off'}
+        <section className="rec-setup-options" aria-label="Recording setup">
+          <div className="rec-step-group">
+            <h1>1 · WHAT TO RECORD</h1>
+            <div className="rec-source-options" role="group" aria-label="Preferred capture source">
+              {([
+                ['monitor', 'Screen'], ['window', 'Window'], ['browser', 'Tab'],
+              ] as const).map(([value, label]) => <button key={value} aria-pressed={r.captureSurface === value}
+                className={r.captureSurface === value ? 'is-selected' : ''} onClick={() => r.setCaptureSurface(value)}>{label}</button>)}
             </div>
-          )}
-        </div>
-
-        <div className="mt-5 flex items-center justify-between">
-          <span id="cam-label" className="font-medium">Camera bubble</span>
-          <button
-            role="switch" aria-checked={r.camOn} aria-labelledby="cam-label" onClick={r.toggleCamera}
-            className={`relative h-6 w-11 rounded-full transition-colors ${r.camOn ? 'bg-brand' : 'bg-muted/50'}`}
-          >
-            <span className={`absolute top-0.5 left-0.5 size-5 rounded-full bg-white transition-transform ${r.camOn ? 'translate-x-5' : ''}`} />
-          </button>
-        </div>
-
-        <div className="mt-4">
-          <p id="mic-label" className="text-sm font-medium">Microphone level</p>
-          <div
-            role="meter" aria-labelledby="mic-label" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(r.level * 100)}
-            className="mt-2 h-2.5 overflow-hidden rounded-full bg-wash"
-          >
-            <div className="h-full rounded-full bg-brand" style={{ width: `${Math.round(r.level * 100)}%` }} />
           </div>
-        </div>
 
-        {r.notices.map((n) => <p key={n} role="status" className="mt-3 rounded-lg bg-tint px-3 py-2 text-sm">{n}</p>)}
-        {r.error && <p role="alert" className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-rec">{r.error}</p>}
+          <div className="rec-step-group">
+            <h2>2 · MICROPHONE</h2>
+            <label className="sr-only" htmlFor="rec-microphone">Choose a microphone</label>
+            <select ref={microphoneRef} id="rec-microphone" value={r.micDeviceId} onChange={(e) => r.selectMicrophone(e.target.value)}>
+              <option value="">{r.microphones.find((device) => device.deviceId === 'default')?.label || 'Built-in Microphone'}</option>
+              {r.microphones.filter((device) => device.deviceId).map((device) =>
+                <option value={device.deviceId} key={device.deviceId}>{device.label || 'Microphone'}</option>)}
+            </select>
+            <div className="rec-mic-meter" role="meter" aria-label="Microphone level" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(r.level * 100)}>
+              {Array.from({ length: 9 }, (_, i) => <span key={i} className={r.level * 9 > i ? 'is-lit' : ''} />)}
+            </div>
+            <p className="rec-helper">Say a few words to test your level</p>
+          </div>
 
-        <button
-          autoFocus onClick={r.start} disabled={r.preparing || r.busy}
-          className={`${btn} mt-6 w-full justify-center bg-brand text-white hover:bg-brand-dark`}
-        >
-          <I.Dot /> {r.preparing ? 'Getting ready…' : r.busy ? 'Choose what to share…' : 'Start recording'}
-        </button>
-        <p className="mt-3 text-center text-sm text-muted">
-          Next, choose a screen, window or tab. Your video stays on this computer.
-        </p>
-      </div>
+          <div className="rec-step-group rec-camera-group">
+            <h2>3 · CAMERA BUBBLE</h2>
+            <button className={`rec-camera-toggle${r.camOn ? ' is-selected' : ''}`} role="switch" aria-checked={r.camOn} onClick={r.toggleCamera}>
+              Camera {r.camOn ? 'on' : 'off'}
+            </button>
+            <div className="rec-corner-picker" role="group" aria-label="Camera bubble corner">
+              {CORNERS.map((corner) => <button key={corner.id} aria-label={`Move camera to ${corner.label}`} aria-pressed={r.corner === corner.id}
+                onClick={() => r.moveBubble(corner.id)} disabled={!r.camOn}>{corner.id === 'tl' ? '\u2196' : corner.id === 'tr' ? '\u2197' : corner.id === 'bl' ? '\u2199' : '\u2198'}</button>)}
+            </div>
+          </div>
+
+          <label className="rec-system-audio"><input type="checkbox" checked={r.includeSystemAudio} onChange={(e) => r.setIncludeSystemAudio(e.target.checked)} />
+            <span>Also record tab / system sound</span>
+          </label>
+
+          {r.notices.map((notice) => <p key={notice} role="status" className="rec-setup-notice">{notice}</p>)}
+          {r.error && <p role="alert" className="rec-setup-error">{r.error}</p>}
+          {!r.hasMic && <button className="rec-choose-mic" onClick={() => microphoneRef.current?.focus()}>Choose a microphone</button>}
+          <button autoFocus onClick={r.start} disabled={r.preparing || r.busy} className="rec-start-button">
+            {r.preparing ? 'Getting ready…' : r.busy ? 'Choose what to share…' : r.hasMic ? 'Start recording' : 'Record without mic'}
+          </button>
+        </section>
+      </main>
+      <footer className="rec-setup-footer">
+        <p>Limit 5:00 · warning at 4:30 · Shortcuts: Alt+Shift+R record, P pause, S stop</p>
+        <p>Private by default: recordings stay in this browser and never leave your computer.</p>
+      </footer>
     </div>
   );
 }
@@ -101,44 +110,34 @@ function Live({ r }: { r: Recorder }) {
   const saving = r.phase === 'saving';
   const label = saving ? 'Saving…' : paused ? 'Paused' : 'Recording';
   return (
-    <Overlay>
-      <span role="status" className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-1.5 text-sm font-semibold">
-        <span className={`size-2.5 rounded-full ${paused || saving ? 'bg-white/60' : 'bg-rec motion-safe:animate-pulse'}`} />
-        {label}
-      </span>
-      <p className="mt-6 text-7xl font-bold tabular-nums">{fmtTime(r.time)}</p>
-      <p className="mt-1 text-white/70">of {fmtTime(LIMIT_SEC * 1000)} limit</p>
-      {r.warning && <p role="alert" className="mt-4 rounded-lg bg-amber-300 px-4 py-2 font-semibold text-ink">{r.warning}</p>}
-
-      <div className="mt-8 flex flex-wrap justify-center gap-3">
-        <button className={ghost} disabled={saving} onClick={paused ? r.resume : r.pause}>
-          {paused ? <I.Play /> : <I.Pause />} {paused ? 'Resume' : 'Pause'}
-        </button>
-        <button className={`${btn} bg-rec text-white`} disabled={saving} onClick={r.stop}><I.Stop /> Stop</button>
-        <button className={ghost} disabled={saving} onClick={r.restart}><I.Restart /> Restart</button>
-        <button className={ghost} disabled={saving} onClick={r.cancel}><I.Close /> Cancel</button>
+    <div className="rec-live-overlay">
+      <div className="rec-live-status-row">
+        <span role="status" className={`rec-live-status${paused || saving ? ' is-paused' : ''}`}><i />{label}</span>
+        <span className="rec-live-limit">{Math.max(0, LIMIT_SEC - Math.floor(r.time / 1000))} seconds left · recording stops at 5:00</span>
+        <span className="rec-live-shortcuts">Alt+Shift+P pause · Alt+Shift+S stop</span>
       </div>
-
-      {r.camStream && (
-        <div role="group" aria-label="Camera bubble" className="mt-6 flex flex-wrap items-center justify-center gap-2">
-          <button className={ghost} disabled={saving} onClick={r.toggleCamera}>{r.camOn ? 'Camera on' : 'Camera off'}</button>
-          {CORNERS.map((c) => (
-            <button
-              key={c.id} disabled={!r.camOn || saving} onClick={() => r.moveBubble(c.id)}
-              aria-label={`Move camera to ${c.label}`} aria-pressed={r.corner === c.id}
-              className={`${ghost} ${r.corner === c.id ? 'ring-2 ring-white' : ''}`}
-            >
-              {c.glyph}
-            </button>
-          ))}
+      {r.warning && <p role="alert" className="rec-live-warning">{r.warning}</p>}
+      <div className="rec-live-preview-row">
+        <div className="rec-live-preview-card rec-live-screen">
+          {r.screenStream ? <video ref={(el) => { if (el && el.srcObject !== r.screenStream) el.srcObject = r.screenStream; }} autoPlay muted playsInline aria-label="Shared screen preview" /> : <span>Waiting for screen preview…</span>}
         </div>
-      )}
-
-      <p className="mt-8 max-w-lg text-sm text-white/70">
-        Shortcuts while this tab is focused: <kbd className={kbd}>Alt+Shift+P</kbd> pause or resume,{' '}
-        <kbd className={kbd}>Alt+Shift+S</kbd> stop, <kbd className={kbd}>Alt+Shift+R</kbd> restart.
-        You can also end the recording with the browser’s Stop sharing button.
-      </p>
-    </Overlay>
+        <div className="rec-live-preview-card rec-live-camera-card">
+          {r.camStream && r.camOn ? <video ref={(el) => { if (el && el.srcObject !== r.camStream) el.srcObject = r.camStream; }} autoPlay muted playsInline /> : <span>Camera off</span>}
+          <strong>{r.camOn ? 'Camera preview' : 'Camera is off'}</strong>
+        </div>
+      </div>
+      <div className="rec-live-toolbar">
+        <span className="rec-live-time">{fmtTime(r.time)} <small>/ {fmtTime(LIMIT_SEC * 1000)}</small></span>
+        <button disabled={saving} onClick={paused ? r.resume : r.pause}>{paused ? <I.Play /> : <I.Pause />}{paused ? 'Resume' : 'Pause'}</button>
+        <button className="is-stop" disabled={saving} onClick={r.stop}><I.Stop />{saving ? 'Saving…' : 'Stop'}</button>
+        <button disabled={saving} onClick={r.restart}><I.Restart />Restart</button>
+        <button disabled={saving} onClick={r.cancel}><I.Close />Cancel</button>
+        {r.camStream && <div className="rec-live-camera-tools" role="group" aria-label="Camera bubble">
+          <button disabled={saving} onClick={r.toggleCamera}>{r.camOn ? 'Camera on' : 'Camera off'}</button>
+          {CORNERS.map((corner) => <button key={corner.id} aria-label={`Move camera to ${corner.label}`} aria-pressed={r.corner === corner.id}
+            disabled={!r.camOn || saving} onClick={() => r.moveBubble(corner.id)}>{corner.id === 'tl' ? '\u2196' : corner.id === 'tr' ? '\u2197' : corner.id === 'bl' ? '\u2199' : '\u2198'}</button>)}
+        </div>}
+      </div>
+    </div>
   );
 }

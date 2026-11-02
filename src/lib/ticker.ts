@@ -4,11 +4,17 @@
 export function createTicker(fps: number, onTick: () => void): () => void {
   const code = `let t;onmessage=(e)=>{if(e.data==='go'){t=setInterval(()=>postMessage(0),${Math.round(1000 / fps)})}}`;
   const url = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
-  const worker = new Worker(url);
-  worker.onmessage = onTick;
-  worker.postMessage('go');
-  return () => {
-    worker.terminate();
+  try {
+    const worker = new Worker(url);
+    worker.onmessage = onTick;
+    worker.postMessage('go');
+    return () => {
+      worker.terminate();
+      URL.revokeObjectURL(url);
+    };
+  } catch {
     URL.revokeObjectURL(url);
-  };
+    const timer = window.setInterval(onTick, Math.max(1, Math.round(1000 / fps)));
+    return () => window.clearInterval(timer);
+  }
 }

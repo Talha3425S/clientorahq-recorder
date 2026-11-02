@@ -13,6 +13,9 @@ export function checkSupport(): Support {
   if (typeof MediaRecorder === 'undefined' || typeof HTMLCanvasElement.prototype.captureStream !== 'function') {
     return { ok: false, reason: 'This browser cannot record video. Update it, or use Chrome, Edge or Firefox.' };
   }
+  if (typeof AudioContext === 'undefined') {
+    return { ok: false, reason: 'This browser cannot mix microphone and screen audio. Use a current version of Chrome, Edge or Firefox.' };
+  }
   return { ok: true };
 }
 
@@ -21,7 +24,7 @@ const MP4 = ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4'];
 
 export const canRecordMp4 = () => typeof MediaRecorder !== 'undefined' && MP4.some((t) => MediaRecorder.isTypeSupported(t));
 
-export function pickMimeType(preferMp4 = false): string | undefined {
+export function pickMimeType(preferMp4 = true): string | undefined {
   const list = preferMp4 ? [...MP4, ...WEBM] : WEBM;
   return list.find((t) => MediaRecorder.isTypeSupported(t));
 }
