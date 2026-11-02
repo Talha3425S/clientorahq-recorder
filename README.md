@@ -1,5 +1,7 @@
 # ClientoraHQ Recorder
 
+[**Open the live recorder**](https://clientorahq-recorder-three.vercel.app/)
+
 A browser based screen recorder built with React, TypeScript, and Vite. Screen video, microphone audio, and the optional camera bubble are composed locally; recordings are stored in IndexedDB and are not uploaded.
 
 ## Run locally
