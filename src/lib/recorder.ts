@@ -50,7 +50,7 @@ export class RecorderSession {
   }
 
   static async prepare(o: Options = {}, h: Handlers = {}, makeSink: () => ChunkSink = () => new MemorySink()) {
-    const s = new RecorderSession({ mic: true, camera: true, limitSec: 300, warnSec: 30, fps: 30, ...o }, h, makeSink);
+    const s = new RecorderSession({ mic: true, micDeviceId: '', camera: true, limitSec: 300, warnSec: 30, fps: 30, ...o }, h, makeSink);
     if (s.opts.mic) {
       try {
         s.mic = await getMic(s.opts.micDeviceId);

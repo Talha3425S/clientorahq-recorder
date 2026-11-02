@@ -86,7 +86,7 @@ export default function App() {
     }
   };
 
-  if (!support.ok) {
+  if (support.ok === false) {
     return (
       <div className="min-h-screen bg-[#f3f7fa]">
         <AppHeader page="library" count={items.length} onNavigate={navigate} />
