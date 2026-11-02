@@ -36,14 +36,6 @@ export default function VideoPage({ meta, onBack, onRename, onDelete, onTrimmed 
     return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
   }, [meta.id, meta.size]);
 
-  useEffect(() => {
-    setDurationMs(meta.durationMs);
-    setTrimStartMs(0);
-    setTrimEndMs(meta.durationMs);
-    setTrimError(null);
-    setTrimSaved(false);
-  }, [meta.id]);
-
   const applyTrim = async () => {
     if (!trimChanged || trimming) return;
     setTrimming(true); setTrimError(null); setTrimSaved(false);

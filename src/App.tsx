@@ -43,10 +43,7 @@ export default function App() {
   }, []);
   const rec = useRecorder(onSaved);
   const current = items.find((meta) => meta.id === openId) ?? null;
-
-  useEffect(() => {
-    if (page === 'record' && rec.phase === 'idle' && !openId) setPage('library');
-  }, [openId, page, rec.phase]);
+  const visiblePage: Page = page === 'record' && rec.phase === 'idle' && !openId ? 'library' : page;
 
   const startRecording = () => {
     setMessage(null);
@@ -106,18 +103,19 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-white">
-      <AppHeader page={page} count={items.length} onNavigate={navigate} />
+      <AppHeader page={visiblePage} count={items.length} onNavigate={navigate} />
       <main className="pdf-library-page">
         {message && <p role="status" className="pdf-message">{message}<button aria-label="Dismiss message" onClick={() => setMessage(null)}><I.Close /></button></p>}
         {current ? (
           <VideoPage
+            key={current.id}
             meta={current}
             onBack={() => setOpenId(null)}
             onRename={(title) => void rename(current.id, title)}
             onDelete={() => void remove(current)}
             onTrimmed={(updated) => setItems((prev) => prev.map((item) => item.id === updated.id ? updated : item))}
           />
-        ) : page === 'library' ? (
+        ) : visiblePage === 'library' ? (
           <Library
             items={items}
             total={items.length}
