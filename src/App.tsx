@@ -1,17 +1,55 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Dot, Film, Search } from './components/Icons';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import * as I from './components/Icons';
 import Library from './components/Library';
+import Menu from './components/Menu';
 import RecorderUI from './components/RecorderUI';
 import VideoPage from './components/VideoPage';
 import { useRecorder } from './hooks/useRecorder';
-import { deleteRecording, listRecordings, renameRecording, type RecordingMeta } from './lib/db';
+import { deleteRecording, listRecordings, renameRecording, saveRecording, type RecordingMeta } from './lib/db';
+import { applyFilters, type Range, type Sort } from './lib/library';
+import { readDuration } from './lib/media';
 import { checkSupport } from './lib/support';
+
+const RANGES: { value: Range; label: string }[] = [
+  { value: 'any', label: 'Any time' },
+  { value: 'today', label: 'Today' },
+  { value: '7', label: 'Last 7 days' },
+  { value: '30', label: 'Last 30 days' },
+];
+const SORTS: { value: Sort; label: string }[] = [
+  { value: 'newest', label: 'Newest to oldest' },
+  { value: 'oldest', label: 'Oldest to newest' },
+  { value: 'longest', label: 'Longest first' },
+  { value: 'title', label: 'Title A–Z' },
+];
+
+function PillSelect<T extends string>({ label, value, onChange, options }: {
+  label: string; value: T; onChange: (v: T) => void; options: { value: T; label: string }[];
+}) {
+  return (
+    <label className="relative">
+      <span className="sr-only">{label}</span>
+      <select
+        value={value} onChange={(e) => onChange(e.target.value as T)}
+        className="appearance-none rounded-lg border border-line bg-white py-2 pr-9 pl-3.5 font-medium hover:bg-wash"
+      >
+        {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+      <span className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-muted"><I.Chevron /></span>
+    </label>
+  );
+}
 
 export default function App() {
   const support = checkSupport();
+  const fileRef = useRef<HTMLInputElement>(null);
   const [items, setItems] = useState<RecordingMeta[]>([]);
   const [query, setQuery] = useState('');
+  const [range, setRange] = useState<Range>('any');
+  const [sort, setSort] = useState<Sort>('newest');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [openId, setOpenId] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -25,24 +63,54 @@ export default function App() {
   }, []);
   const rec = useRecorder(onSaved);
 
-  const shown = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return q ? items.filter((m) => m.title.toLowerCase().includes(q)) : items;
-  }, [items, query]);
+  const shown = useMemo(() => applyFilters(items, query, range, sort), [items, query, range, sort]);
   const current = items.find((m) => m.id === openId) ?? null;
+  const allSelected = shown.length > 0 && shown.every((m) => selected.has(m.id));
+  const alert = message ?? (rec.phase === 'idle' ? rec.error : null);
 
   const rename = async (id: string, title: string) => {
     await renameRecording(id, title);
     setItems((prev) => prev.map((m) => (m.id === id ? { ...m, title } : m)));
   };
-  const remove = async (m: RecordingMeta) => {
-    if (!window.confirm(`Delete “${m.title}”? This cannot be undone.`)) return;
-    await deleteRecording(m.id);
-    setItems((prev) => prev.filter((x) => x.id !== m.id));
+
+  const removeMany = async (list: RecordingMeta[]) => {
+    if (!list.length) return;
+    const text = list.length === 1 ? `Delete “${list[0].title}”? This cannot be undone.` : `Delete ${list.length} videos? This cannot be undone.`;
+    if (!window.confirm(text)) return;
+    await Promise.all(list.map((m) => deleteRecording(m.id)));
+    const gone = new Set(list.map((m) => m.id));
+    setItems((prev) => prev.filter((m) => !gone.has(m.id)));
+    setSelected((prev) => new Set([...prev].filter((id) => !gone.has(id))));
     setOpenId(null);
   };
+
+  const toggle = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+
+  const upload = async (files: FileList | null) => {
+    const added: RecordingMeta[] = [];
+    for (const f of Array.from(files ?? [])) {
+      if (!f.type.startsWith('video/')) {
+        setMessage(`“${f.name}” is not a video file.`);
+        continue;
+      }
+      try {
+        const durationMs = await readDuration(f);
+        added.push(await saveRecording({ id: crypto.randomUUID(), blob: f, durationMs, mimeType: f.type }, f.name.replace(/\.[^.]+$/, '')));
+      } catch {
+        setMessage('Could not save the video. The browser may be out of storage.');
+      }
+    }
+    if (added.length) setItems((prev) => [...added.reverse(), ...prev]);
+  };
+
   const newVideo = () => {
     setOpenId(null);
+    setMessage(null);
     void rec.openPanel();
   };
 
@@ -59,61 +127,117 @@ export default function App() {
 
   return (
     <div className="flex min-h-screen">
-      <aside className="hidden w-60 shrink-0 flex-col border-r border-line bg-wash p-4 md:flex">
-        <div className="flex items-center gap-2 px-2 py-1 text-lg font-bold">
-          <span className="grid size-8 place-items-center rounded-lg bg-brand text-white"><Dot /></span>
+      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-line bg-white p-4 md:flex">
+        <div className="flex items-center gap-2.5 px-1 text-lg font-bold">
+          <span className="grid size-9 place-items-center rounded-xl bg-brand text-white"><I.Dot /></span>
           ClientoraHQ Recorder
         </div>
-        <button onClick={newVideo} className="mt-6 inline-flex items-center justify-center gap-2 rounded-lg bg-brand px-4 py-2.5 font-semibold text-white hover:bg-brand-dark">
-          <Dot /> New video
-        </button>
-        <nav aria-label="Main" className="mt-6">
-          <a href="#library" aria-current="page" onClick={() => setOpenId(null)} className="flex items-center gap-2 rounded-lg bg-tint px-3 py-2 font-semibold text-brand-dark">
-            <Film /> Library
+        <div className="mt-5 rounded-xl border border-line p-3">
+          <p className="font-semibold">My recordings</p>
+          <p className="mt-1 flex items-center gap-1.5 text-sm text-muted"><I.Lock /> Stored on this device</p>
+        </div>
+        <nav aria-label="Main" className="mt-5">
+          <a href="#library" aria-current="page" onClick={() => setOpenId(null)} className="flex items-center gap-3 rounded-lg bg-tint px-3 py-2.5 font-semibold text-brand-dark">
+            <I.Film /> Library
           </a>
         </nav>
-        <p className="mt-auto rounded-lg bg-white p-3 text-sm text-muted">
-          <strong className="text-ink">Private by default.</strong> Recordings stay in this browser. Nothing is uploaded.
-        </p>
+        <div className="mt-auto space-y-3">
+          <p className="rounded-lg bg-wash p-3 text-sm text-muted">
+            <strong className="text-ink">Private by default.</strong> Recordings stay in this browser. Nothing is uploaded.
+          </p>
+          <button onClick={newVideo} className="flex w-full items-center gap-2.5 rounded-xl bg-brand px-4 py-3 font-semibold text-white shadow-lg hover:bg-brand-dark">
+            <I.VideoCam /> Record a video
+          </button>
+        </div>
       </aside>
 
       <main className="min-w-0 flex-1">
-        <header className="flex items-center gap-3 border-b border-line px-6 py-3">
+        <header className="flex items-center gap-4 px-6 py-3">
           <span className="font-bold md:hidden">ClientoraHQ Recorder</span>
-          <label className="relative max-w-xl flex-1">
+          <label className="relative max-w-3xl flex-1">
             <span className="sr-only">Search videos</span>
-            <span className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-muted"><Search /></span>
+            <span className="pointer-events-none absolute top-1/2 left-3.5 -translate-y-1/2 text-muted"><I.Search /></span>
             <input
               type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search your videos"
-              className="w-full rounded-full border border-line bg-white py-2 pr-4 pl-10"
+              className="w-full rounded-lg border border-line bg-white py-2.5 pr-4 pl-10"
             />
           </label>
-          <button onClick={newVideo} className="ml-auto inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 font-semibold text-white hover:bg-brand-dark md:hidden">
-            <Dot /> New
-          </button>
+          <span className="ml-auto hidden items-center gap-1.5 rounded-full border border-line px-3 py-1.5 text-sm text-muted lg:inline-flex">
+            <I.Lock /> Private · nothing leaves this computer
+          </span>
         </header>
 
-        <div className="px-6 py-6">
-          {rec.phase === 'idle' && rec.error && <p role="alert" className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-rec">{rec.error}</p>}
+        <div className="px-6 pt-4 pb-10">
+          {alert && (
+            <p role="alert" className="mb-4 flex items-center justify-between gap-3 rounded-lg bg-red-50 px-4 py-3 text-rec">
+              {alert}
+              {message && <button onClick={() => setMessage(null)} aria-label="Dismiss message"><I.Close /></button>}
+            </p>
+          )}
+
           {current ? (
             <VideoPage
               meta={current} onBack={() => setOpenId(null)}
-              onRename={(t) => void rename(current.id, t)} onDelete={() => void remove(current)}
+              onRename={(t) => void rename(current.id, t)} onDelete={() => void removeMany([current])}
             />
           ) : (
             <>
-              <p className="text-sm text-muted">Library</p>
-              <div className="flex items-end justify-between">
-                <h1 className="text-3xl font-bold">Videos</h1>
-                <p className="text-sm text-muted">{items.length} {items.length === 1 ? 'video' : 'videos'}</p>
+              <div className="flex items-end justify-between gap-4">
+                <div>
+                  <p className="text-sm text-muted">Library</p>
+                  <h1 className="text-3xl font-bold">Videos</h1>
+                </div>
+                <Menu
+                  buttonLabel="New video" buttonClass="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2.5 font-semibold text-white hover:bg-brand-dark"
+                  button={<>New video <I.Chevron /></>}
+                  items={[
+                    { label: 'Record a video', icon: <I.VideoCam />, onSelect: newVideo },
+                    { label: 'Upload a video', icon: <I.Upload />, onSelect: () => fileRef.current?.click() },
+                  ]}
+                />
               </div>
+
+              <div className="mt-5 flex items-end justify-between border-b border-line">
+                <p className="-mb-px border-b-2 border-brand px-1 pb-2.5 font-semibold text-brand">All videos</p>
+                <p className="pb-2.5 text-sm text-muted">{items.length} {items.length === 1 ? 'video' : 'videos'}</p>
+              </div>
+
+              <div className="mt-5 flex flex-wrap items-center gap-3">
+                <label className="flex items-center gap-2.5 font-medium">
+                  <input
+                    type="checkbox" checked={allSelected} disabled={shown.length === 0} className="size-4 accent-brand"
+                    onChange={() => setSelected(allSelected ? new Set() : new Set(shown.map((m) => m.id)))}
+                  />
+                  Select all videos
+                </label>
+                {selected.size > 0 && (
+                  <button
+                    onClick={() => void removeMany(items.filter((m) => selected.has(m.id)))}
+                    className="rounded-lg border border-line px-3 py-2 font-semibold text-rec hover:bg-red-50"
+                  >
+                    Delete {selected.size} selected
+                  </button>
+                )}
+                <div className="ml-auto flex flex-wrap gap-3">
+                  <PillSelect label="Upload date" value={range} onChange={setRange} options={RANGES} />
+                  <PillSelect label="Sort videos" value={sort} onChange={setSort} options={SORTS} />
+                </div>
+              </div>
+
               <Library
-                items={shown} total={items.length} onOpen={setOpenId}
-                onRename={(id, t) => void rename(id, t)} onDelete={(m) => void remove(m)} onNew={newVideo}
+                items={shown} total={items.length} selected={selected} onToggle={toggle} onOpen={setOpenId}
+                onRename={(id, t) => void rename(id, t)} onDelete={(m) => void removeMany([m])} onNew={newVideo}
               />
             </>
           )}
         </div>
+        <input
+          ref={fileRef} type="file" accept="video/*" multiple hidden
+          onChange={(e) => {
+            const input = e.currentTarget;
+            void upload(input.files).then(() => { input.value = ''; });
+          }}
+        />
       </main>
 
       <RecorderUI r={rec} />
