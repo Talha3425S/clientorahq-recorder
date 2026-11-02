@@ -127,28 +127,40 @@ export default function App() {
 
   return (
     <div className="flex min-h-screen">
-      <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-line bg-white p-4 md:flex">
-        <div className="flex items-center gap-2.5 px-1 text-lg font-bold">
-          <span className="grid size-9 place-items-center rounded-xl bg-brand text-white"><I.Dot /></span>
-          ClientoraHQ Recorder
+      <aside className="loom-sidebar sticky top-0 hidden h-screen shrink-0 flex-col border-r border-line bg-white md:flex">
+        <div className="loom-brand-row">
+          <span className="loom-logo"><I.LoomMark /></span>
+          <span className="text-[20px] font-bold tracking-[-.5px]">Loom</span>
+          <button className="loom-collapse" aria-label="Collapse sidebar"><I.SidebarToggle /></button>
         </div>
-        <div className="mt-5 rounded-xl border border-line p-3">
-          <p className="font-semibold">My recordings</p>
-          <p className="mt-1 flex items-center gap-1.5 text-sm text-muted"><I.Lock /> Stored on this device</p>
-        </div>
-        <nav aria-label="Main" className="mt-5">
-          <a href="#library" aria-current="page" onClick={() => setOpenId(null)} className="flex items-center gap-3 rounded-lg bg-tint px-3 py-2.5 font-semibold text-brand-dark">
-            <I.Film /> Library
-          </a>
+
+        <button className="loom-workspace" aria-label="Workspace menu">
+          <div className="loom-workspace-top">
+            <span className="truncate font-semibold">jk9224090-1793171721...</span>
+            <I.Chevron />
+          </div>
+          <div className="loom-workspace-meta">
+            <span className="loom-default">Default</span>
+            <span className="loom-info">i</span>
+            <span className="loom-members">1 member</span>
+          </div>
+          <span className="loom-invite"><I.Invite /> Invite teammates</span>
+        </button>
+
+        <nav aria-label="Main" className="loom-nav">
+          <a href="#for-you" className="loom-nav-item"><I.UserCircle /> <span>For you</span></a>
+          <a href="#library" aria-current="page" onClick={() => setOpenId(null)} className="loom-nav-item is-active"><I.Film /> <span>Library</span></a>
+          <a href="#meetings" className="loom-nav-item"><I.Calendar /> <span>Meetings</span></a>
+          <a href="#playlists" className="loom-nav-item"><I.Playlist /> <span>Playlists</span><span className="loom-new">New</span></a>
+          <a href="#recent" className="loom-nav-item"><I.Clock /> <span>Recent</span></a>
+          <a href="#settings" className="loom-nav-item"><I.Settings /> <span>Personal settings</span></a>
         </nav>
-        <div className="mt-auto space-y-3">
-          <p className="rounded-lg bg-wash p-3 text-sm text-muted">
-            <strong className="text-ink">Private by default.</strong> Recordings stay in this browser. Nothing is uploaded.
-          </p>
-          <button onClick={newVideo} className="flex w-full items-center gap-2.5 rounded-xl bg-brand px-4 py-3 font-semibold text-white shadow-lg hover:bg-brand-dark">
-            <I.VideoCam /> Record a video
-          </button>
+
+        <div className="loom-admin">
+          <p>Admin tools</p>
+          <a href="#overview" className="loom-nav-item"><I.Globe /> <span>Overview</span></a>
         </div>
+        <button onClick={newVideo} className="loom-record"><I.LoomMark /> Record a video</button>
       </aside>
 
       <main className="min-w-0 flex-1">
