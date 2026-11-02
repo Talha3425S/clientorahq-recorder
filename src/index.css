@@ -3,14 +3,14 @@
 
 @theme {
   --font-sans: 'Figtree', system-ui, 'Segoe UI', sans-serif;
-  --color-ink: #14202b;
-  --color-muted: #5a6672;
-  --color-line: #e2e6ea;
-  --color-wash: #f5f7f9;
-  --color-brand: #0b6f85;
-  --color-brand-dark: #085869;
-  --color-tint: #e5f2f5;
-  --color-rec: #d92d3a;
+  --color-ink: #172b4d;
+  --color-muted: #626f86;
+  --color-line: #dcdfe4;
+  --color-wash: #f7f8f9;
+  --color-brand: #1868db;
+  --color-brand-dark: #1558bc;
+  --color-tint: #e9f2ff;
+  --color-rec: #c9372c;
 }
 
 @layer base {
