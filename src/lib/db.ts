@@ -10,6 +10,9 @@ export interface RecordingMeta {
   mimeType: string;
   size: number;
   thumb: string | null; // data URL, so there is no blob URL to manage
+  archived?: boolean;
+  source?: 'recorded' | 'uploaded' | 'meeting';
+  lastViewedAt?: number;
 }
 
 interface Schema extends DBSchema {
@@ -21,11 +24,13 @@ interface Schema extends DBSchema {
 let dbPromise: Promise<IDBPDatabase<Schema>> | null = null;
 
 export const getDb = () =>
-  (dbPromise ??= openDB<Schema>('clientorahq-recorder', 1, {
-    upgrade(db) {
-      db.createObjectStore('meta', { keyPath: 'id' }).createIndex('by-date', 'createdAt');
-      db.createObjectStore('videos');
-      db.createObjectStore('chunks');
+  (dbPromise ??= openDB<Schema>('clientorahq-recorder', 2, {
+    upgrade(db, oldVersion) {
+      if (oldVersion < 1) {
+        db.createObjectStore('meta', { keyPath: 'id' }).createIndex('by-date', 'createdAt');
+        db.createObjectStore('videos');
+        db.createObjectStore('chunks');
+      }
     },
   }));
 
@@ -68,7 +73,7 @@ export class IdbSink implements ChunkSink {
 }
 
 export async function saveRecording(
-  r: { id: string; blob: Blob; durationMs: number; mimeType: string },
+  r: { id: string; blob: Blob; durationMs: number; mimeType: string; source?: RecordingMeta['source'] },
   title?: string,
 ): Promise<RecordingMeta> {
   const createdAt = Date.now();
@@ -80,6 +85,8 @@ export async function saveRecording(
     mimeType: r.mimeType,
     size: r.blob.size,
     thumb: await makeThumbnail(r.blob),
+    archived: false,
+    source: r.source ?? 'recorded',
   };
   const db = await getDb();
   const tx = db.transaction(['meta', 'videos'], 'readwrite');
@@ -100,6 +107,24 @@ export async function renameRecording(id: string, title: string) {
   const db = await getDb();
   const meta = await db.get('meta', id);
   if (meta) await db.put('meta', { ...meta, title });
+}
+
+export async function setRecordingArchived(id: string, archived: boolean) {
+  const db = await getDb();
+  const meta = await db.get('meta', id);
+  if (!meta) throw new Error('This recording is no longer in the library.');
+  const updated = { ...meta, archived };
+  await db.put('meta', updated);
+  return updated;
+}
+
+export async function markRecordingViewed(id: string) {
+  const db = await getDb();
+  const meta = await db.get('meta', id);
+  if (!meta) return;
+  const updated = { ...meta, lastViewedAt: Date.now() };
+  await db.put('meta', updated);
+  return updated;
 }
 
 export async function replaceRecordingVideo(id: string, blob: Blob, durationMs: number, mimeType: string) {

@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { LIMIT_SEC, type Recorder } from '../hooks/useRecorder';
 import type { Corner } from '../lib/compositor';
 import { fmtTime } from '../lib/format';
@@ -30,6 +30,8 @@ export default function RecorderUI({ r, libraryCount = 0 }: { r: Recorder; libra
 function Setup({ r, libraryCount }: { r: Recorder; libraryCount: number }) {
   const stream = r.camOn ? r.camStream : null;
   const microphoneRef = useRef<HTMLSelectElement>(null);
+  const [sourceMenu, setSourceMenu] = useState(false);
+  const sourceLabel = r.captureSurface === 'monitor' ? 'Full Screen' : r.captureSurface === 'window' ? 'Window' : 'Current tab';
   return (
     <div className="rec-setup-screen">
       <header className="rec-setup-header">
@@ -49,14 +51,17 @@ function Setup({ r, libraryCount }: { r: Recorder; libraryCount: number }) {
           /> : <span className="rec-camera-placeholder">{r.camOn ? 'TJ' : 'Camera off'}</span>}
         </section>
 
-        <section className="rec-setup-options" aria-label="Recording setup">
+        <section className="rec-setup-options loom-recorder-panel" aria-label="Recording setup">
+          <div className="loom-rec-mode-row" aria-label="Capture modes">
+            <span aria-hidden="true">⌂</span><span className="is-selected" aria-hidden="true">▣</span><button aria-label="Camera recording" onClick={r.toggleCamera}>▧</button><span aria-hidden="true">✧</span><button className="loom-rec-close" aria-label="Close recorder setup" onClick={r.cancel}>×</button>
+          </div>
           <div className="rec-step-group">
             <h1>1 · WHAT TO RECORD</h1>
-            <div className="rec-source-options" role="group" aria-label="Preferred capture source">
-              {([
-                ['monitor', 'Screen'], ['window', 'Window'], ['browser', 'Tab'],
-              ] as const).map(([value, label]) => <button key={value} aria-pressed={r.captureSurface === value}
-                className={r.captureSurface === value ? 'is-selected' : ''} onClick={() => r.setCaptureSurface(value)}>{label}</button>)}
+            <div className="loom-source-picker">
+              <button className="loom-source-select" onClick={() => setSourceMenu((open) => !open)} aria-expanded={sourceMenu}><span>▦</span>{sourceLabel}<i>⌄</i></button>
+              {sourceMenu && <div className="loom-source-menu" role="listbox" aria-label="What to record">
+                {([['monitor', 'Full Screen'], ['window', 'Window'], ['browser', 'Current tab']] as const).map(([value, label]) => <button key={value} role="option" aria-selected={r.captureSurface === value} onClick={() => { r.setCaptureSurface(value); setSourceMenu(false); }}><span>{value === 'monitor' ? '▣' : value === 'window' ? '▦' : '▱'}</span>{label}{r.captureSurface === value && <b>✓</b>}</button>)}
+              </div>}
             </div>
           </div>
 

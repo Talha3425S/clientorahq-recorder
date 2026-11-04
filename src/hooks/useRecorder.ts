@@ -25,11 +25,11 @@ export function useRecorder(onSaved: (m: RecordingMeta) => void) {
   const [error, setError] = useState<string | null>(null);
   const [camStream, setCamStream] = useState<MediaStream | null>(null);
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
-  const [camOn, setCamOn] = useState(true);
+  const [camOn, setCamOn] = useState(false);
   const [corner, setCorner] = useState<Corner>('br');
   const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([]);
   const [micDeviceId, setMicDeviceId] = useState('');
-  const [captureSurface, setCaptureSurface] = useState<CaptureSurface>('monitor');
+  const [captureSurface, setCaptureSurface] = useState<CaptureSurface>('window');
   const [includeSystemAudio, setIncludeSystemAudio] = useState(true);
 
   const reset = useCallback(() => {
@@ -108,8 +108,8 @@ export function useRecorder(onSaved: (m: RecordingMeta) => void) {
   }, [finish, micDeviceId, reset]);
 
   const openPanel = useCallback(() => {
-    setCamOn(true);
-    return open(true);
+    setCamOn(false);
+    return open(false);
   }, [open]);
 
   const start = useCallback(async () => {
