@@ -4,6 +4,19 @@
 
 A browser based screen recorder built with React, TypeScript, and Vite. Screen video, microphone audio, and the optional camera bubble are composed locally; recordings are stored in IndexedDB and are not uploaded.
 
+## Email signup and OTP API
+
+The `/signup` page requests a six digit email code. The Express API stores only a keyed hash of each code, expires codes after 10 minutes, allows at most five verification attempts, limits resends, verifies the email, and creates an HttpOnly session cookie. A successful verification redirects to the recorder dashboard. The existing dashboard and its local recordings continue to work without an account.
+
+The OTP signup requires PostgreSQL and an SMTP account. Configure both before starting the API:
+
+1. Create a PostgreSQL database, then copy `.env.example` to `.env` and set `DATABASE_URL`, the SMTP values, `SMTP_FROM`, and two independent random values for `OTP_SECRET` and `SESSION_SECRET`.
+2. Set `APP_ORIGIN` to the exact browser origin. For the default local Vite URL, use `http://localhost:5173`.
+3. In one terminal run `npm run server` (API on port 3001).
+4. In another terminal run `npm run dev` and open the Vite URL. Click the account avatar or visit `/signup`.
+
+The API creates the auth tables on startup. In production, use HTTPS, a managed PostgreSQL service, real SMTP credentials, and a strong secret manager. The production frontend and API must be served on the same origin or configured behind a reverse proxy; the session cookie is Secure in production. Do not commit `.env` or use the sample credentials.
+
 ## Run locally
 
 ```sh
@@ -30,6 +43,6 @@ Designed for current desktop Chrome, Edge, and Firefox. This project has not yet
 
 - Run and document a manual browser matrix for Chrome, Edge, and Firefox, including audio synchronization and trim output.
 - Add automated browser tests for the recorder lifecycle and IndexedDB library.
-- Add optional hosted sharing only after explicit storage and privacy requirements are defined.
+- Add hosted recording sharing only after explicit storage and privacy requirements are defined.
 
 All recording and trimming happens in the browser. The app does not send recordings to a server.
