@@ -13,6 +13,8 @@ export interface RecordingMeta {
   archived?: boolean;
   source?: 'recorded' | 'uploaded' | 'meeting';
   lastViewedAt?: number;
+  cloudId?: string;
+  isCloud?: boolean;
 }
 
 interface Schema extends DBSchema {
@@ -107,6 +109,13 @@ export async function renameRecording(id: string, title: string) {
   const db = await getDb();
   const meta = await db.get('meta', id);
   if (meta) await db.put('meta', { ...meta, title });
+}
+
+export async function setRecordingCloudId(id: string, cloudId: string) {
+  const db = await getDb();
+  const meta = await db.get('meta', id);
+  if (!meta) throw new Error('This recording is no longer in the library.');
+  await db.put('meta', { ...meta, cloudId });
 }
 
 export async function setRecordingArchived(id: string, archived: boolean) {

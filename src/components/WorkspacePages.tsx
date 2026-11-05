@@ -6,6 +6,8 @@ interface Playlist {
   id: string;
   name: string;
   description: string;
+  recordingIds: string[];
+  createdAt: number;
 }
 
 const PLAYLISTS_KEY = 'clientorahq-recorder-playlists';
@@ -13,7 +15,16 @@ const PLAYLISTS_KEY = 'clientorahq-recorder-playlists';
 function readPlaylists(): Playlist[] {
   try {
     const value: unknown = JSON.parse(localStorage.getItem(PLAYLISTS_KEY) ?? '[]');
-    return Array.isArray(value) ? value as Playlist[] : [];
+    return Array.isArray(value) ? value.map((entry) => {
+      const playlist = entry as Partial<Playlist>;
+      return {
+        id: typeof playlist.id === 'string' ? playlist.id : crypto.randomUUID(),
+        name: typeof playlist.name === 'string' ? playlist.name : 'Untitled playlist',
+        description: typeof playlist.description === 'string' ? playlist.description : '',
+        recordingIds: Array.isArray(playlist.recordingIds) ? playlist.recordingIds.filter((id): id is string => typeof id === 'string') : [],
+        createdAt: typeof playlist.createdAt === 'number' ? playlist.createdAt : Date.now(),
+      };
+    }) : [];
   } catch {
     return [];
   }
@@ -47,28 +58,88 @@ export function UpgradeModal({ onClose, onChoose }: { onClose: () => void; onCho
   return <div className="upgrade-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="upgrade-dialog" role="dialog" aria-modal="true" aria-labelledby="upgrade-title"><header><h1 id="upgrade-title">Choose your plan</h1><button onClick={onClose} aria-label="Close upgrade dialog">×</button></header><div className="upgrade-scroll-content"><fieldset className="billing-selector"><legend className="sr-only">Billing frequency</legend><label><input type="radio" name="billing-frequency" checked={billing === 'annual'} onChange={() => setBilling('annual')} />Annual {billing === 'annual' && <span>17% off</span>}</label><label><input type="radio" name="billing-frequency" checked={billing === 'monthly'} onChange={() => setBilling('monthly')} />Monthly</label></fieldset><div className="upgrade-plan-grid">{plans.map((plan) => <article className={`upgrade-plan${plan.current ? ' is-current' : ''}`} key={plan.name}>{plan.current && <span className="current-trial-pill">♢ Current trial</span>}<h2>{plan.name}</h2><p className="upgrade-plan-description">{plan.description}</p><div className={`upgrade-price${plan.name === 'Enterprise' ? ' is-enterprise' : ''}`}>{plan.price}{plan.name !== 'Enterprise' && <small>per seat / mo</small>}</div><strong className="upgrade-plan-subhead">Everything in {plan.name === 'Business' ? 'Starter' : plan.name === 'Enterprise' ? 'Business + AI' : 'Business'}, and</strong><ul>{plan.features.map((feature) => <li key={feature}>{feature}</li>)}</ul><button className={plan.current ? 'upgrade-plan-primary' : ''} onClick={plan.onChoose}>{plan.action}</button></article>)}</div></div></section></div>;
 }
 
-export function PlaylistsPage() {
+export function PlaylistsPage({ recordings, onOpenRecording, onOpenLibrary }: { recordings: RecordingMeta[]; onOpenRecording: (id: string) => void; onOpenLibrary: () => void }) {
   const [playlists, setPlaylists] = useState<Playlist[]>(readPlaylists);
-  const [showCreate, setShowCreate] = useState(false);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [dialog, setDialog] = useState<'create' | 'edit' | null>(null);
+  const [showAddVideos, setShowAddVideos] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const create = () => {
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [error, setError] = useState('');
+  const active = playlists.find((playlist) => playlist.id === activeId) ?? null;
+  const playlistVideos = active ? active.recordingIds.map((id) => recordings.find((recording) => recording.id === id)).filter((recording): recording is RecordingMeta => Boolean(recording)) : [];
+
+  const commit = (next: Playlist[]) => {
+    try {
+      localStorage.setItem(PLAYLISTS_KEY, JSON.stringify(next));
+      setPlaylists(next);
+      setError('');
+      return true;
+    } catch {
+      setError('Could not save playlists in this browser. Check available storage and try again.');
+      return false;
+    }
+  };
+  const openCreate = () => { setName(''); setDescription(''); setDialog('create'); };
+  const openEdit = () => { if (!active) return; setName(active.name); setDescription(active.description); setDialog('edit'); };
+  const saveDetails = () => {
     const cleanName = name.trim();
     if (!cleanName) return;
-    const next = [{ id: crypto.randomUUID(), name: cleanName, description: description.trim() }, ...playlists];
-    setPlaylists(next);
-    localStorage.setItem(PLAYLISTS_KEY, JSON.stringify(next));
-    setName('');
-    setDescription('');
-    setShowCreate(false);
+    if (dialog === 'create') {
+      const next = [{ id: crypto.randomUUID(), name: cleanName, description: description.trim(), recordingIds: [], createdAt: Date.now() }, ...playlists];
+      if (commit(next)) { setActiveId(next[0].id); setDialog(null); }
+      return;
+    }
+    if (!active) return;
+    const next = playlists.map((playlist) => playlist.id === active.id ? { ...playlist, name: cleanName, description: description.trim() } : playlist);
+    if (commit(next)) setDialog(null);
+  };
+  const deletePlaylist = () => {
+    if (!active || !window.confirm(`Delete playlist “${active.name}”? Your videos will stay in the Library.`)) return;
+    if (commit(playlists.filter((playlist) => playlist.id !== active.id))) setActiveId(null);
+  };
+  const openAddVideos = () => {
+    if (!active) return;
+    setSelectedIds(active.recordingIds.filter((id) => recordings.some((recording) => recording.id === id)));
+    setShowAddVideos(true);
+  };
+  const saveVideos = () => {
+    if (!active) return;
+    const next = playlists.map((playlist) => playlist.id === active.id ? { ...playlist, recordingIds: selectedIds } : playlist);
+    if (commit(next)) setShowAddVideos(false);
+  };
+  const moveVideo = (id: string, direction: -1 | 1) => {
+    if (!active) return;
+    const ids = [...active.recordingIds];
+    const index = ids.indexOf(id);
+    const destination = index + direction;
+    if (index < 0 || destination < 0 || destination >= ids.length) return;
+    [ids[index], ids[destination]] = [ids[destination], ids[index]];
+    commit(playlists.map((playlist) => playlist.id === active.id ? { ...playlist, recordingIds: ids } : playlist));
+  };
+  const removeVideo = (id: string) => {
+    if (!active) return;
+    commit(playlists.map((playlist) => playlist.id === active.id ? { ...playlist, recordingIds: playlist.recordingIds.filter((recordingId) => recordingId !== id) } : playlist));
   };
 
   return (
     <section className="loom-playlists-page">
-      <div className="playlist-feature"><div><span className="playlist-feature-tag">PLAYLISTS</span><h1>Turn scattered videos into guided journeys</h1><p>Group related recordings into a clear sequence for onboarding, training, and team updates.</p><button className="playlist-create-button" onClick={() => setShowCreate(true)}>＋ Create a playlist</button></div><div className="playlist-feature-art" aria-hidden="true"><span>▶</span><i /><i /><i /></div></div>
-      <div className="playlist-list-heading"><h2>Browse all playlists</h2><button onClick={() => setShowCreate(true)}>＋ Create new playlist</button></div>
-      {playlists.length === 0 ? <div className="playlist-empty"><span>▣</span><h3>No playlists in this workspace yet</h3><p>Create a playlist to group related videos and organize your recordings.</p><button onClick={() => setShowCreate(true)}>Create new playlist</button></div> : <ul className="playlist-grid">{playlists.map((playlist) => <li key={playlist.id}><div className="playlist-tile-art"><span>▶</span></div><h3>{playlist.name}</h3><p>{playlist.description || 'Playlist by you'} · 0 videos</p></li>)}</ul>}
-      {showCreate && <div className="playlist-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowCreate(false); }}><form className="playlist-modal" role="dialog" aria-modal="true" aria-labelledby="playlist-modal-title" onSubmit={(event) => { event.preventDefault(); create(); }}><button type="button" className="playlist-modal-close" aria-label="Close" onClick={() => setShowCreate(false)}>×</button><h2 id="playlist-modal-title">Create new playlist</h2><label><span>Name</span><input autoFocus maxLength={80} placeholder="My new playlist" value={name} onChange={(event) => setName(event.currentTarget.value)} required /></label><label><span>Description (Optional)</span><textarea maxLength={300} placeholder="What is this playlist for?" value={description} onChange={(event) => setDescription(event.currentTarget.value)} /></label><footer><button type="button" onClick={() => setShowCreate(false)}>Cancel</button><button type="submit" disabled={!name.trim()}>Create playlist</button></footer></form></div>}
+      {active ? <>
+        <button className="playlist-back-button" onClick={() => setActiveId(null)}>← All playlists</button>
+        <div className="playlist-detail-heading"><div><span className="playlist-feature-tag">PLAYLIST</span><h1>{active.name}</h1><p>{active.description || 'A playlist by you'} · {playlistVideos.length} {playlistVideos.length === 1 ? 'video' : 'videos'}</p></div><div><button onClick={openEdit}>Edit details</button><button onClick={deletePlaylist}>Delete playlist</button><button className="playlist-create-button" onClick={openAddVideos}>＋ Add videos</button></div></div>
+        {playlistVideos.length === 0 ? <div className="playlist-empty"><span>▣</span><h3>This playlist is empty</h3><p>Add videos from your local Library to build a watch order.</p>{recordings.length ? <button onClick={openAddVideos}>Add videos</button> : <button onClick={onOpenLibrary}>Go to Library</button>}</div> : <ol className="playlist-video-list">{playlistVideos.map((recording, index) => <li key={recording.id}><span className="playlist-video-number">{index + 1}</span><button className="playlist-video-thumb" onClick={() => onOpenRecording(recording.id)}>{recording.thumb ? <img src={recording.thumb} alt="" /> : <span>▶</span>}</button><button className="playlist-video-title" onClick={() => onOpenRecording(recording.id)}><strong>{recording.title}</strong><small>{fmtTime(recording.durationMs)} · {fmtDate(recording.createdAt)}</small></button><div className="playlist-video-actions"><button aria-label={`Move ${recording.title} up`} disabled={index === 0} onClick={() => moveVideo(recording.id, -1)}>↑</button><button aria-label={`Move ${recording.title} down`} disabled={index === playlistVideos.length - 1} onClick={() => moveVideo(recording.id, 1)}>↓</button><button aria-label={`Remove ${recording.title} from playlist`} onClick={() => removeVideo(recording.id)}>Remove</button></div></li>)}</ol>}
+      </> : <>
+        <div className="playlist-feature"><div><span className="playlist-feature-tag">PLAYLISTS</span><h1>Turn scattered videos into guided journeys</h1><p>Group related recordings into a clear sequence for onboarding, training, and team updates.</p><button className="playlist-create-button" onClick={openCreate}>＋ Create a playlist</button></div><div className="playlist-feature-art" aria-hidden="true"><span>▶</span><i /><i /><i /></div></div>
+        <div className="playlist-list-heading"><h2>Browse all playlists</h2><button onClick={openCreate}>＋ Create new playlist</button></div>
+        {playlists.length === 0 ? <div className="playlist-empty"><span>▣</span><h3>No playlists in this workspace yet</h3><p>Create a playlist to group related videos and organize your recordings.</p><button onClick={openCreate}>Create new playlist</button></div> : <ul className="playlist-grid">{playlists.map((playlist) => {
+          const covers = playlist.recordingIds.map((id) => recordings.find((recording) => recording.id === id)).filter((recording): recording is RecordingMeta => Boolean(recording && recording.thumb)).slice(0, 3);
+          return <li key={playlist.id}><button className="playlist-tile-open" onClick={() => setActiveId(playlist.id)}><div className="playlist-tile-art">{covers.length ? covers.map((recording) => <img key={recording.id} src={recording.thumb ?? undefined} alt="" />) : <span>▶</span>}</div><h3>{playlist.name}</h3><p>{playlist.description || 'Playlist by you'} · {playlist.recordingIds.length} {playlist.recordingIds.length === 1 ? 'video' : 'videos'}</p></button><button className="playlist-tile-edit" onClick={() => { setActiveId(playlist.id); setName(playlist.name); setDescription(playlist.description); setDialog('edit'); }}>Edit</button></li>;
+        })}</ul>}
+      </>}
+      {error && <p className="playlist-error" role="alert">{error}</p>}
+      {dialog && <div className="playlist-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setDialog(null); }}><form className="playlist-modal" role="dialog" aria-modal="true" aria-labelledby="playlist-modal-title" onSubmit={(event) => { event.preventDefault(); saveDetails(); }}><button type="button" className="playlist-modal-close" aria-label="Close" onClick={() => setDialog(null)}>×</button><h2 id="playlist-modal-title">{dialog === 'create' ? 'Create new playlist' : 'Edit playlist'}</h2><label><span>Name</span><input autoFocus maxLength={80} placeholder="My new playlist" value={name} onChange={(event) => setName(event.currentTarget.value)} required /></label><label><span>Description (Optional)</span><textarea maxLength={300} placeholder="What is this playlist for?" value={description} onChange={(event) => setDescription(event.currentTarget.value)} /></label><footer><button type="button" onClick={() => setDialog(null)}>Cancel</button><button type="submit" disabled={!name.trim()}>{dialog === 'create' ? 'Create playlist' : 'Save changes'}</button></footer></form></div>}
+      {showAddVideos && active && <div className="playlist-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowAddVideos(false); }}><section className="playlist-modal playlist-add-modal" role="dialog" aria-modal="true" aria-labelledby="playlist-add-title"><button type="button" className="playlist-modal-close" aria-label="Close" onClick={() => setShowAddVideos(false)}>×</button><h2 id="playlist-add-title">Add videos to {active.name}</h2>{recordings.length === 0 ? <p>No videos are available in your Library yet.</p> : <div className="playlist-recording-picker">{recordings.map((recording) => <label key={recording.id}><input type="checkbox" checked={selectedIds.includes(recording.id)} onChange={() => setSelectedIds((ids) => ids.includes(recording.id) ? ids.filter((id) => id !== recording.id) : [...ids, recording.id])} /><span>{recording.thumb ? <img src={recording.thumb} alt="" /> : <i>▶</i>}</span><span><strong>{recording.title}</strong><small>{fmtTime(recording.durationMs)} · {fmtDate(recording.createdAt)}</small></span></label>)}</div>}<footer><button type="button" onClick={() => setShowAddVideos(false)}>Cancel</button><button type="button" onClick={saveVideos} disabled={recordings.length === 0}>Save videos</button></footer></section></div>}
     </section>
   );
 }

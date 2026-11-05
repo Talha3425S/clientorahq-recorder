@@ -10,9 +10,11 @@ interface Props {
   onRename: (title: string) => void;
   onDelete: () => void;
   onTrimmed: (meta: RecordingMeta) => void;
+  videoSrc?: string;
+  onDownload?: () => void;
 }
 
-export default function VideoPage({ meta, onBack, onRename, onDelete, onTrimmed }: Props) {
+export default function VideoPage({ meta, onBack, onRename, onDelete, onTrimmed, videoSrc, onDownload }: Props) {
   const [src, setSrc] = useState<string | null>(null);
   const [durationMs, setDurationMs] = useState(meta.durationMs);
   const [trimStartMs, setTrimStartMs] = useState(0);
@@ -25,6 +27,11 @@ export default function VideoPage({ meta, onBack, onRename, onDelete, onTrimmed 
   const trimChanged = trimStartMs > 0 || trimEndMs < durationMs;
 
   useEffect(() => {
+    if (videoSrc) {
+      setSrc(videoSrc);
+      return;
+    }
+    setSrc(null);
     let url: string | null = null;
     let cancelled = false;
     void getVideo(meta.id).then((blob) => {
@@ -34,7 +41,7 @@ export default function VideoPage({ meta, onBack, onRename, onDelete, onTrimmed 
       }
     });
     return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
-  }, [meta.id, meta.size]);
+  }, [meta.id, meta.size, videoSrc]);
 
   const applyTrim = async () => {
     if (!trimChanged || trimming) return;
@@ -91,7 +98,7 @@ export default function VideoPage({ meta, onBack, onRename, onDelete, onTrimmed 
               if (!durationMs && measured) { setDurationMs(measured); setTrimEndMs(measured); }
             }} /> : <p>Loading recording…</p>}
           </div>
-          <section className="pdf-trim-section" aria-labelledby="trim-title">
+          {meta.isCloud ? <section className="pdf-trim-section"><h2>Cloud recording</h2><p>Cloud recordings play from your workspace. Trimming is available on local recordings.</p></section> : <section className="pdf-trim-section" aria-labelledby="trim-title">
             <h2 id="trim-title">Trim your recording</h2>
             <div className="pdf-trim-track" aria-hidden="true"><span /></div>
             <div className="pdf-trim-controls">
@@ -112,7 +119,7 @@ export default function VideoPage({ meta, onBack, onRename, onDelete, onTrimmed 
             </div>
             {trimSaved && <p role="status" className="pdf-success">Trimmed recording saved to your library.</p>}
             {trimError && <p role="alert" className="pdf-trim-error">{trimError}</p>}
-          </section>
+          </section>}
         </div>
 
         <aside className="pdf-video-side">
@@ -124,12 +131,14 @@ export default function VideoPage({ meta, onBack, onRename, onDelete, onTrimmed 
           </label>
           <p className="pdf-video-details">{fmtTime(durationMs)} · {fmtDate(meta.createdAt)} · {fmtSize(meta.size)}</p>
           <button className="pdf-save-button" onClick={onBack}>Save to library</button>
-          <button onClick={() => void downloadAs('webm')} disabled={downloading !== null}>
-            {downloading === 'webm' ? 'Preparing WebM…' : 'Download WebM'}
-          </button>
-          <button onClick={() => void downloadAs('mp4')} disabled={downloading !== null || !canRecordMp4()} title={!canRecordMp4() ? 'MP4 encoding is not supported by this browser.' : undefined}>
-            {downloading === 'mp4' ? 'Preparing MP4…' : 'Download MP4'}
-          </button>
+          {meta.isCloud ? <button onClick={onDownload}>Download recording</button> : <>
+            <button onClick={() => void downloadAs('webm')} disabled={downloading !== null}>
+              {downloading === 'webm' ? 'Preparing WebM…' : 'Download WebM'}
+            </button>
+            <button onClick={() => void downloadAs('mp4')} disabled={downloading !== null || !canRecordMp4()} title={!canRecordMp4() ? 'MP4 encoding is not supported by this browser.' : undefined}>
+              {downloading === 'mp4' ? 'Preparing MP4…' : 'Download MP4'}
+            </button>
+          </>}
           {downloadError && <p role="alert" className="pdf-trim-error">{downloadError}</p>}
           <button className="pdf-discard-button" onClick={onDelete}>Discard recording</button>
         </aside>

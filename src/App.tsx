@@ -4,7 +4,9 @@ import Library from './components/Library';
 import RecorderUI from './components/RecorderUI';
 import VideoPage from './components/VideoPage';
 import { useRecorder } from './hooks/useRecorder';
-import { deleteRecording, listRecordings, markRecordingViewed, renameRecording, saveRecording, setRecordingArchived, type RecordingMeta } from './lib/db';
+import { deleteRecording, getVideo, listRecordings, markRecordingViewed, renameRecording, saveRecording, setRecordingArchived, setRecordingCloudId, type RecordingMeta } from './lib/db';
+import { deleteCloudRecording, downloadCloudRecording, getCloudPlaybackUrl, listCloudRecordings, renameCloudRecording, uploadRecordingToCloud } from './lib/recordingsApi';
+import { downloadRecording } from './lib/download';
 import { checkSupport } from './lib/support';
 import { AdminOverview, AdminSpaces, AdminUsers, CreateSpaceModal, InsightsPage, MeetingsPage, PlaylistsPage, RecentPage, SettingsPage, UpgradeModal, WorkspaceSettings, type WorkspaceSpace } from './components/WorkspacePages';
 import AuthPage from './components/AuthPage';
@@ -16,13 +18,14 @@ function readWorkspaceSpaces(): WorkspaceSpace[] {
   catch { return []; }
 }
 
-function AppHeader({ page, count, search, spaces, onSearch, onNavigate, onRecord, onCreateSpace, onUpgrade }: { page: Page; count: number; search: string; spaces: WorkspaceSpace[]; onSearch: (value: string) => void; onNavigate: (page: Page) => void; onRecord: () => void; onCreateSpace: () => void; onUpgrade: () => void }) {
+function AppHeader({ page, count, search, spaces, onSearch, onNavigate, onRecord, onCreateSpace, onUpgrade, onLogout }: { page: Page; count: number; search: string; spaces: WorkspaceSpace[]; onSearch: (value: string) => void; onNavigate: (page: Page) => void; onRecord: () => void; onCreateSpace: () => void; onUpgrade: () => void; onLogout: () => void }) {
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   return (
     <>
       <header className="loom-topbar">
         <div className="loom-top-left"><button className="top-icon collapse-icon" aria-label="Collapse sidebar">◧</button><button className="top-icon apps-icon" aria-label="Apps">▦</button><div className="loom-logo"><span>✳</span><strong>Clientora<span>HQ</span></strong></div></div>
         <label className="global-search"><span>⌕</span><input value={search} onChange={(event) => onSearch(event.currentTarget.value)} placeholder="Search for people, tags, folders, Spaces, Playlists, and videos" aria-label="Search" /></label>
-        <div className="loom-top-actions"><button className="upgrade-button" onClick={onUpgrade}>♢ Upgrade</button><button className="top-icon" aria-label="Help">?</button><button className="top-icon notification-button" aria-label="Notifications">♧<i>2</i></button><a className="user-avatar" aria-label="Sign up or sign in" title="Sign up or sign in" href="/signup">TJ</a></div>
+        <div className="loom-top-actions"><button className="upgrade-button" onClick={onUpgrade}>♢ Upgrade</button><button className="top-icon" aria-label="Help">?</button><button className="top-icon notification-button" aria-label="Notifications">♧<i>2</i></button><div className="account-menu-anchor"><button className="user-avatar" aria-label="Account menu" title="Account menu" aria-haspopup="menu" aria-expanded={profileMenuOpen} onClick={() => setProfileMenuOpen((open) => !open)}>TJ</button>{profileMenuOpen && <div className="profile-menu" role="menu"><strong>Signed in</strong><button role="menuitem" onClick={() => { setProfileMenuOpen(false); onLogout(); }}>Sign out</button></div>}</div></div>
       </header>
       <aside className="loom-sidebar">
         <div className="loom-sidebar-scroll">
@@ -61,6 +64,9 @@ function AppHeader({ page, count, search, spaces, onSearch, onNavigate, onRecord
 export default function App() {
   const support = checkSupport();
   const [items, setItems] = useState<RecordingMeta[]>([]);
+  const [cloudItems, setCloudItems] = useState<RecordingMeta[]>([]);
+  const [cloudPlaybackUrl, setCloudPlaybackUrl] = useState<string | null>(null);
+  const [uploadingId, setUploadingId] = useState<string | null>(null);
   const [page, setPage] = useState<Page>('for-you');
   const [openId, setOpenId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -69,7 +75,28 @@ export default function App() {
   const [spaces, setSpaces] = useState<WorkspaceSpace[]>(readWorkspaceSpaces);
   const [showCreateSpace, setShowCreateSpace] = useState(false);
   const [showUpgrade, setShowUpgrade] = useState(false);
-  const isSignupPage = window.location.pathname === '/signup';
+  const authFlow = window.location.pathname === '/login' ? 'login' : 'signup';
+  const isAuthPage = window.location.pathname === '/signup' || window.location.pathname === '/login';
+  const [authStatus, setAuthStatus] = useState<'checking' | 'authenticated' | 'unauthenticated' | 'error'>('checking');
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch('/api/v1/auth/me', { credentials: 'same-origin' }).then((response) => {
+      if (cancelled) return;
+      if (response.ok) {
+        if (isAuthPage) window.location.replace('/');
+        else setAuthStatus('authenticated');
+      } else if (response.status === 401) {
+        if (isAuthPage) setAuthStatus('unauthenticated');
+        else window.location.replace('/login');
+      } else {
+        setAuthStatus('error');
+      }
+    }).catch(() => {
+      if (!cancelled) setAuthStatus('error');
+    });
+    return () => { cancelled = true; };
+  }, [isAuthPage]);
 
   useEffect(() => {
     let cancelled = false;
@@ -79,15 +106,27 @@ export default function App() {
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => {
+    if (authStatus !== 'authenticated') return;
+    let cancelled = false;
+    void listCloudRecordings().then((list) => { if (!cancelled) setCloudItems(list); }).catch((error) => {
+      if (!cancelled) setMessage(error instanceof Error ? `Cloud library unavailable: ${error.message}` : 'Could not load cloud recordings.');
+    });
+    return () => { cancelled = true; };
+  }, [authStatus]);
+
   const onSaved = useCallback((meta: RecordingMeta) => {
     setItems((prev) => [meta, ...prev]);
     setPage('library');
     setOpenId(meta.id);
   }, []);
   const rec = useRecorder(onSaved);
-  const current = items.find((meta) => meta.id === openId) ?? null;
-  const filteredItems = search.trim() ? items.filter((item) => item.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())) : items;
+  const syncedCloudIds = new Set(cloudItems.map((meta) => meta.id));
+  const libraryItems = [...items.filter((meta) => !meta.cloudId || !syncedCloudIds.has(meta.cloudId)), ...cloudItems];
+  const current = libraryItems.find((meta) => meta.id === openId) ?? null;
+  const filteredItems = search.trim() ? libraryItems.filter((item) => item.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())) : libraryItems;
   const activeItems = filteredItems.filter((item) => !item.archived);
+  const availableRecordings = libraryItems.filter((item) => !item.archived);
   const archivedItems = filteredItems.filter((item) => item.archived);
   const visiblePage: Page = page === 'record' && rec.phase === 'idle' && !openId ? 'for-you' : page;
 
@@ -119,11 +158,42 @@ export default function App() {
     setNotice(updated.archived ? 'Video moved to Archive.' : 'Video restored to Videos.');
   };
 
-  const openRecording = (id: string) => {
+  const openRecording = async (id: string) => {
+    const meta = libraryItems.find((item) => item.id === id);
+    if (meta?.isCloud) {
+      setMessage(null);
+      try {
+        setCloudPlaybackUrl(await getCloudPlaybackUrl(id));
+        setOpenId(id);
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : 'Could not open this cloud recording.');
+      }
+      return;
+    }
+    setCloudPlaybackUrl(null);
     setOpenId(id);
     void markRecordingViewed(id).then((updated) => {
       if (updated) setItems((previous) => previous.map((item) => item.id === id ? updated : item));
     });
+  };
+
+  const uploadToCloud = async (meta: RecordingMeta) => {
+    if (uploadingId) return;
+    setUploadingId(meta.id);
+    setMessage(null);
+    try {
+      const blob = await getVideo(meta.id);
+      if (!blob) throw new Error('This video is no longer available in local browser storage.');
+      const cloudMeta = await uploadRecordingToCloud(meta, blob);
+      await setRecordingCloudId(meta.id, cloudMeta.id);
+      setItems((previous) => previous.map((item) => item.id === meta.id ? { ...item, cloudId: cloudMeta.id } : item));
+      setCloudItems((previous) => [cloudMeta, ...previous.filter((item) => item.id !== cloudMeta.id)]);
+      setNotice('Video uploaded to your cloud library.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not upload this video.');
+    } finally {
+      setUploadingId(null);
+    }
   };
 
   const uploadVideo = async (file: File) => {
@@ -140,15 +210,55 @@ export default function App() {
   };
 
   const rename = async (id: string, title: string) => {
-    await renameRecording(id, title);
-    setItems((prev) => prev.map((meta) => meta.id === id ? { ...meta, title } : meta));
+    const meta = libraryItems.find((item) => item.id === id);
+    try {
+      if (meta?.isCloud) {
+        await renameCloudRecording(id, title);
+        setCloudItems((prev) => prev.map((item) => item.id === id ? { ...item, title } : item));
+        const localCopy = items.find((item) => item.cloudId === id);
+        if (localCopy) {
+          await renameRecording(localCopy.id, title);
+          setItems((prev) => prev.map((item) => item.id === localCopy.id ? { ...item, title } : item));
+        }
+      } else {
+        await renameRecording(id, title);
+        setItems((prev) => prev.map((item) => item.id === id ? { ...item, title } : item));
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not rename this video.');
+    }
   };
 
   const remove = async (meta: RecordingMeta) => {
     if (!window.confirm(`Delete “${meta.title}”? This cannot be undone.`)) return;
-    await deleteRecording(meta.id);
-    setItems((prev) => prev.filter((item) => item.id !== meta.id));
-    if (openId === meta.id) setOpenId(null);
+    try {
+      if (meta.isCloud) {
+        await deleteCloudRecording(meta.id);
+        const localCopies = items.filter((item) => item.cloudId === meta.id);
+        await Promise.all(localCopies.map((item) => deleteRecording(item.id)));
+        setCloudItems((prev) => prev.filter((item) => item.id !== meta.id));
+        setItems((prev) => prev.filter((item) => item.cloudId !== meta.id));
+      } else {
+        await deleteRecording(meta.id);
+        setItems((prev) => prev.filter((item) => item.id !== meta.id));
+      }
+      if (openId === meta.id) setOpenId(null);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not delete this video.');
+    }
+  };
+
+  const download = async (meta: RecordingMeta) => {
+    try {
+      if (!meta.isCloud) return await downloadRecording(meta);
+      const url = await downloadCloudRecording(meta.id);
+      const link = document.createElement('a');
+      link.href = url;
+      link.rel = 'noreferrer';
+      link.click();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not download this video.');
+    }
   };
 
   const copyPageLink = async () => {
@@ -160,12 +270,24 @@ export default function App() {
     }
   };
 
-  if (isSignupPage) return <AuthPage />;
+  const logOut = async () => {
+    try {
+      const response = await fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'same-origin' });
+      if (!response.ok) throw new Error('Could not sign out right now. Please try again.');
+      window.location.replace('/login');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not sign out right now. Check your connection and try again.');
+    }
+  };
+
+  if (authStatus === 'checking') return <div className="pdf-preparing"><span className="pdf-spinner" />Checking your session…</div>;
+  if (authStatus === 'error') return <main className="pdf-error-page"><article className="pdf-error-card"><h1>Can’t connect to your account</h1><p>Make sure the authentication server is running, then try again.</p><button onClick={() => window.location.reload()}>Try again</button><p><a href="/login">Go to sign in</a></p></article></main>;
+  if (isAuthPage) return <AuthPage initialFlow={authFlow} />;
 
   if (support.ok === false) {
     return (
       <div className="min-h-screen bg-[#f3f7fa]">
-        <AppHeader page="library" count={activeItems.length} search={search} spaces={spaces} onSearch={updateSearch} onNavigate={navigate} onRecord={startRecording} onCreateSpace={() => setShowCreateSpace(true)} onUpgrade={() => setShowUpgrade(true)} />
+        <AppHeader page="library" count={activeItems.length} search={search} spaces={spaces} onSearch={updateSearch} onNavigate={navigate} onRecord={startRecording} onCreateSpace={() => setShowCreateSpace(true)} onUpgrade={() => setShowUpgrade(true)} onLogout={() => void logOut()} />
         <main className="pdf-error-page">
           <article className="pdf-error-card">
             <span className="pdf-error-icon is-info">i</span>
@@ -182,7 +304,7 @@ export default function App() {
 
   return (
     <div className="loom-app-shell">
-      <AppHeader page={visiblePage} count={activeItems.length} search={search} spaces={spaces} onSearch={updateSearch} onNavigate={navigate} onRecord={startRecording} onCreateSpace={() => setShowCreateSpace(true)} onUpgrade={() => setShowUpgrade(true)} />
+      <AppHeader page={visiblePage} count={activeItems.length} search={search} spaces={spaces} onSearch={updateSearch} onNavigate={navigate} onRecord={startRecording} onCreateSpace={() => setShowCreateSpace(true)} onUpgrade={() => setShowUpgrade(true)} onLogout={() => void logOut()} />
       <main className={`loom-main${visiblePage === 'for-you' && !current ? ' is-home' : ''}`}>
         {(message || notice) && <p role="status" className="pdf-message">{message || notice}<button aria-label="Dismiss message" onClick={() => { setMessage(null); setNotice(null); }}><I.Close /></button></p>}
         {current ? (
@@ -192,6 +314,8 @@ export default function App() {
             onBack={() => setOpenId(null)}
             onRename={(title) => void rename(current.id, title)}
             onDelete={() => void remove(current)}
+            videoSrc={current.isCloud ? cloudPlaybackUrl ?? undefined : undefined}
+            onDownload={current.isCloud ? () => void download(current) : undefined}
             onTrimmed={(updated) => setItems((prev) => prev.map((item) => item.id === updated.id ? updated : item))}
           />
         ) : visiblePage === 'library' ? (
@@ -205,11 +329,14 @@ export default function App() {
             onDelete={(meta) => void remove(meta)}
             onNew={startRecording}
             onArchive={(meta) => void toggleArchive(meta)}
+            onUpload={(meta) => void uploadToCloud(meta)}
+            onDownload={(meta) => void download(meta)}
+            uploadingId={uploadingId}
           />
         ) : visiblePage === 'meetings' ? (
           <MeetingsPage onConnect={() => setNotice('Calendar connection is not configured in this local workspace.')} />
         ) : visiblePage === 'playlists' ? (
-          <PlaylistsPage />
+          <PlaylistsPage recordings={availableRecordings} onOpenRecording={openRecording} onOpenLibrary={() => navigate('library')} />
         ) : visiblePage === 'recent' ? (
           <RecentPage items={activeItems} onOpen={openRecording} />
         ) : visiblePage === 'settings' ? (

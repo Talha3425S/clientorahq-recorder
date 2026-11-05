@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import type { RecordingMeta } from '../lib/db';
-import { downloadRecording } from '../lib/download';
 import { fmtDate, fmtSize, fmtTime } from '../lib/format';
 
 interface Props {
@@ -13,6 +12,9 @@ interface Props {
   onDelete: (meta: RecordingMeta) => void;
   onNew: () => void;
   onArchive: (meta: RecordingMeta) => void;
+  onUpload: (meta: RecordingMeta) => void;
+  onDownload: (meta: RecordingMeta) => void;
+  uploadingId: string | null;
 }
 
 const displaySize = (bytes: number) => bytes < 1_000_000
@@ -30,7 +32,7 @@ const FILTER_OPTIONS: Record<FilterKey, string[]> = {
 };
 const EMPTY_FILTERS: Filters = { type: [], access: [], activity: [], date: [] };
 
-export default function Library({ items, archivedItems, total, storageUsed, onOpen, onRename, onDelete, onNew, onArchive }: Props) {
+export default function Library({ items, archivedItems, total, storageUsed, onOpen, onRename, onDelete, onNew, onArchive, onUpload, onDownload, uploadingId }: Props) {
   const [view, setView] = useState<LibraryView>('videos');
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [draftFilter, setDraftFilter] = useState<string[]>([]);
@@ -91,8 +93,9 @@ export default function Library({ items, archivedItems, total, storageUsed, onOp
                 <div className="pdf-recording-actions">
                   <button onClick={() => onOpen(meta.id)}>Play</button>
                   <button onClick={() => { const next = window.prompt('Rename recording', meta.title)?.trim(); if (next) onRename(meta.id, next); }}>Rename</button>
-                  <button onClick={() => void downloadRecording(meta)}>Download</button>
-                  <button onClick={() => onArchive(meta)}>{view === 'archive' ? 'Restore' : 'Archive'}</button>
+                  <button onClick={() => onDownload(meta)}>Download</button>
+                  <button onClick={() => onArchive(meta)} disabled={meta.isCloud}>{view === 'archive' ? 'Restore' : 'Archive'}</button>
+                  {!meta.isCloud && <button onClick={() => onUpload(meta)} disabled={uploadingId !== null || Boolean(meta.cloudId)}>{uploadingId === meta.id ? 'Uploading…' : meta.cloudId ? 'Uploaded to cloud' : 'Upload to cloud'}</button>}
                   <button className="is-danger" onClick={() => onDelete(meta)}>Delete</button>
                 </div>
               </li>
@@ -100,7 +103,7 @@ export default function Library({ items, archivedItems, total, storageUsed, onOp
           </ul>
         </>
       )}
-      <p className="pdf-storage-note"><span className="local-storage-dot" /> Stored privately on this device - {fmtSize(storageUsed)} used</p>
+      <p className="pdf-storage-note"><span className="local-storage-dot" /> Local videos stay on this device - {fmtSize(storageUsed)} used. Cloud videos are stored in your workspace.</p>
     </section>
   );
 }

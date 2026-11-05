@@ -1,6 +1,7 @@
 import { useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react';
 
 type ApiResponse = { user?: { id: string; email: string }; message?: string; error?: { message?: string } };
+type AuthFlow = 'signup' | 'login';
 
 async function postAuth(path: string, body: Record<string, string>): Promise<ApiResponse> {
   const response = await fetch(path, {
@@ -14,8 +15,9 @@ async function postAuth(path: string, body: Record<string, string>): Promise<Api
   return data;
 }
 
-export default function AuthPage() {
+export default function AuthPage({ initialFlow = 'signup' }: { initialFlow?: AuthFlow }) {
   const [email, setEmail] = useState('');
+  const [flow, setFlow] = useState<AuthFlow>(initialFlow);
   const [digits, setDigits] = useState(['', '', '', '', '', '']);
   const [step, setStep] = useState<'email' | 'code'>('email');
   const [busy, setBusy] = useState(false);
@@ -29,7 +31,7 @@ export default function AuthPage() {
     setNotice('');
     setBusy(true);
     try {
-      const data = await postAuth('/api/v1/auth/signup/request-otp', { email });
+      const data = await postAuth(`/api/v1/auth/${flow}/request-otp`, { email });
       setStep('code');
       setNotice(data.message || 'Check your inbox for the verification code.');
       window.setTimeout(() => inputRefs.current[0]?.focus(), 0);
@@ -44,7 +46,7 @@ export default function AuthPage() {
     setError('');
     setBusy(true);
     try {
-      await postAuth('/api/v1/auth/signup/verify-otp', { email, code });
+      await postAuth(`/api/v1/auth/${flow}/verify-otp`, { email, code });
       window.location.replace('/');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not verify the code.');
@@ -96,25 +98,27 @@ export default function AuthPage() {
           <div className="signup-points"><span><i>✓</i> Record and share in one place</span><span><i>✓</i> Keep your workspace organized</span></div>
         </div>
         <form className="signup-form" onSubmit={(event) => { event.preventDefault(); if (step === 'email') void requestCode(); else void verifyCode(); }}>
-          <span className="signup-eyebrow">Create your account</span>
-          <h2>Get started for free</h2>
-          <p>Enter your work email and we’ll send you a one-time verification code.</p>
-          <label htmlFor="signup-email">Work email</label>
+          <span className="signup-eyebrow">{flow === 'signup' ? 'Create your account' : 'Welcome back'}</span>
+          <h2>{flow === 'signup' ? 'Get started for free' : 'Sign in to your workspace'}</h2>
+          <p>{flow === 'signup' ? 'Enter your work email and we’ll send you a one-time verification code.' : 'Enter the email for your account and we’ll send you a sign-in code.'}</p>
+          <label htmlFor="signup-email">Email address</label>
           <input id="signup-email" type="email" autoComplete="email" required maxLength={254} placeholder="you@company.com" value={email} onChange={(event) => setEmail(event.currentTarget.value)} disabled={busy || step === 'code'} />
           {error && <p className="auth-error" role="alert">{error}</p>}
           {notice && <p className="auth-notice" role="status">{notice}</p>}
-          {step === 'email' ? <button className="signup-primary" type="submit" disabled={busy}>{busy ? 'Sending code…' : 'Sign up'}</button> : <p className="auth-code-help">Enter the six digit code in the verification window.</p>}
+          {step === 'email' ? <button className="signup-primary" type="submit" disabled={busy}>{busy ? 'Sending code…' : flow === 'signup' ? 'Sign up' : 'Continue with email'}</button> : <p className="auth-code-help">Enter the six digit code in the verification window.</p>}
+          {step === 'email' && <p className="auth-switch">{flow === 'signup' ? 'Already have an account?' : 'New to ClientoraHQ?'} <button type="button" onClick={() => { setFlow(flow === 'signup' ? 'login' : 'signup'); setError(''); setNotice(''); }}>{flow === 'signup' ? 'Sign in' : 'Create an account'}</button></p>}
           <small>By continuing, you agree to the terms and acknowledge the privacy policy.</small>
         </form>
       </section>
       {step === 'code' && <div className="otp-overlay"><div className="otp-dashboard-skeleton" aria-hidden="true"><div className="otp-skeleton-sidebar"><b>✳ Loom</b><i /><i /><i /><i /></div><div className="otp-skeleton-main"><i /><div /><div className="otp-skeleton-grid"><i /><i /><i /></div></div></div><div className="otp-dimmer" aria-hidden="true" />
         <section className="otp-dialog" role="dialog" aria-modal="true" aria-labelledby="otp-title">
-          <span className="otp-logo">✳</span><h2 id="otp-title">We’ve emailed you a code</h2><p>To complete your account setup, enter the code we sent to:</p><strong>{email}</strong>
+          <span className="otp-logo">✳</span><h2 id="otp-title">We’ve emailed you a code</h2><p>{flow === 'signup' ? 'To complete your account setup' : 'To sign in'}, enter the code we sent to:</p><strong>{email}</strong>
           <div className="otp-dialog-inputs" onPaste={pasteCode}>{digits.map((digit, index) => <input key={index} ref={(node) => { inputRefs.current[index] = node; }} aria-label={`Digit ${index + 1}`} inputMode="numeric" autoComplete={index === 0 ? 'one-time-code' : 'off'} maxLength={6} value={digit} onChange={(event) => updateDigit(index, event.currentTarget.value)} onKeyDown={(event) => handleKeyDown(index, event)} />)}</div>
           {error && <p className="auth-error" role="alert">{error}</p>}
           <button className="signup-primary" type="button" onClick={() => void verifyCode()} disabled={busy || code.length !== 6}>{busy ? 'Verifying…' : 'Verify'}</button>
           <button className="otp-mail-link" type="button" onClick={() => { window.location.href = 'mailto:'; }}>✉ &nbsp; Open email</button>
           <p className="otp-resend">Didn’t receive an email? <button type="button" disabled={busy} onClick={() => void requestCode()}>Resend email</button></p>
+          <div className="otp-dialog-links"><button type="button" onClick={() => { setStep('email'); setDigits(['', '', '', '', '', '']); setError(''); setNotice(''); }}>Change email</button>{flow === 'login' && <button type="button" onClick={() => { setFlow('signup'); setStep('email'); setDigits(['', '', '', '', '', '']); setError(''); setNotice(''); }}>Create an account instead</button>}</div>
         </section>
       </div>}
     </main>
