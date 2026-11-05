@@ -24,3 +24,21 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions(user_id);
+
+CREATE TABLE IF NOT EXISTS recordings (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title varchar(120) NOT NULL,
+  object_key text NOT NULL UNIQUE,
+  thumbnail_key text,
+  mime_type varchar(127) NOT NULL,
+  size_bytes bigint NOT NULL CHECK (size_bytes >= 0),
+  duration_ms integer NOT NULL CHECK (duration_ms >= 0),
+  status text NOT NULL DEFAULT 'uploading'
+    CHECK (status IN ('uploading', 'processing', 'ready', 'failed', 'deleted')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS recordings_owner_created_idx
+  ON recordings(owner_id, created_at DESC)
+  WHERE status <> 'deleted';
