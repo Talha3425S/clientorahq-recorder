@@ -2,7 +2,7 @@
 
 ## Current application
 
-The Vite/React client captures and edits media in the browser. The local library uses IndexedDB. An Express API now supports email OTP signup and PostgreSQL-backed sessions; cloud recording upload remains a later capability. Keep local capture available as a private, zero-setup mode.
+The Vite/React client captures and edits media in the browser. The local library uses IndexedDB. An Express API supports email OTP signup, login, PostgreSQL-backed sessions, owner-scoped recording metadata, and R2-backed upload and playback URLs when R2 credentials are configured. Keep local capture available as a private, zero-setup mode.
 
 ## Target shape
 
@@ -16,10 +16,10 @@ Node.js API (Express) ─── PostgreSQL
 Cloudflare R2 ── private objects; delivery through authorized API
 ```
 
-- **Web client:** retain Vite and React. Introduce an API client and a storage adapter so local IndexedDB and hosted recordings share the same library UI. Do not upload until the user chooses Share.
-- **API:** Node.js/Express owns authentication, authorization, metadata, upload coordination, share links, and cleanup. The current API implements email OTP signup, email verification, and database-backed sessions. Validate request bodies and enforce per-account quotas and rate limits.
+- **Web client:** retain Vite and React. Keep local IndexedDB available and list hosted recordings alongside it. Upload only when the user chooses **Upload to cloud**.
+- **API:** Node.js/Express owns authentication, authorization, metadata, upload coordination, share links, and cleanup. The current API implements email OTP signup/login, owner-scoped recording list/create/rename/delete, signed R2 upload URLs, upload verification, and signed playback URLs. The server generates object keys and never accepts them from the client.
 - **Database:** PostgreSQL is the source of truth for accounts, sessions, recording metadata, and shares. Store object keys, never permanent public URLs.
-- **Media:** private R2 bucket with presigned multipart uploads for large media. The browser uploads directly to R2; the API issues short-lived scoped URLs and verifies completion. Downloads use short-lived signed URLs after access checks. Apply lifecycle cleanup to abandoned multipart uploads and deleted media.
+- **Media:** private R2 bucket. The browser uploads directly using a five-minute presigned PUT URL for files up to 4.995 GiB; the API verifies object size and content type before marking a recording ready. Playback and download links are signed for one hour after access checks. Multipart uploads and lifecycle cleanup are future work.
 - **Sessions:** the OTP API sets an HttpOnly, SameSite=Lax opaque cookie and persists only its keyed hash in PostgreSQL. Verification creates a 30 day session. Production requires HTTPS and the exact frontend origin is checked on state-changing authentication requests.
 - **Processing:** accept supported browser-produced formats as-is initially. Add asynchronous thumbnail/transcode jobs only when needed; store job state in the database and keep the original object private.
 
@@ -89,28 +89,31 @@ All endpoints are versioned under `/api/v1`; JSON errors use `{ "error": { "code
 
 | Method and path | Access | Purpose |
 | --- | --- | --- |
-| `POST /api/v1/auth/signup/request-otp` | Public, rate limited | Email a one time verification code |
-| `POST /api/v1/auth/signup/verify-otp` | Public, rate limited | Verify the code, create account if needed, and establish a session |
+| `POST /api/v1/auth/signup/request-otp` | Public, rate limited | Email an account verification code |
+| `POST /api/v1/auth/signup/verify-otp` | Public, rate limited | Verify the code, create an account, and establish a session |
+| `POST /api/v1/auth/login/request-otp` | Public, rate limited | Email a sign-in code |
+| `POST /api/v1/auth/login/verify-otp` | Public, rate limited | Verify the code for an existing account and establish a session |
 | `POST /api/v1/auth/logout` | Same-origin request | Revoke session |
 | `GET /api/v1/auth/me` | Session | Return current account |
-| `GET /recordings?cursor=&limit=` | Session | List only the signed-in user's ready recordings |
-| `POST /recordings` | Session + CSRF | Create metadata and an upload intent; return scoped presigned upload instructions |
-| `POST /recordings/:id/complete` | Owner + CSRF | Verify uploaded object, finalize metadata, mark ready |
-| `GET /recordings/:id` | Owner | Read metadata and a short-lived download URL |
-| `PATCH /recordings/:id` | Owner + CSRF | Rename title |
-| `DELETE /recordings/:id` | Owner + CSRF | Mark deleted, remove R2 objects, revoke shares |
-| `POST /recordings/:id/shares` | Owner + CSRF | Create a revocable, optionally expiring share URL |
-| `DELETE /shares/:id` | Share owner + CSRF | Revoke a share |
-| `GET /shares/:token` | Public token | Return read-only metadata and a short-lived playback URL if valid |
+| `GET /api/v1/recordings` | Session | List the signed-in user's non-deleted recordings (up to 100) |
+| `POST /api/v1/recordings` | Session + same-origin | Create metadata and return a short-lived, content-type-scoped R2 PUT URL |
+| `PATCH /api/v1/recordings/:id` | Owner + same-origin | Rename a recording |
+| `DELETE /api/v1/recordings/:id` | Owner + same-origin | Delete the R2 object and mark the recording deleted |
+| `POST /api/v1/recordings/:id/complete` | Owner + same-origin | Verify uploaded object size/type and mark ready |
+| `GET /api/v1/recordings/:id` | Owner | Read metadata and a one-hour playback URL |
+| `GET /api/v1/recordings/:id/download` | Owner | Return an attachment URL for a ready recording |
+| `POST /api/v1/recordings/:id/shares` | Owner + same-origin | Create a revocable, optionally expiring share URL |
+| `DELETE /api/v1/shares/:id` | Share owner + same-origin | Revoke a share |
+| `GET /api/v1/shares/:token` | Public token | Return read-only metadata and a short-lived playback URL if valid |
 
-Upload intents must bind the object key, maximum content length, and permitted MIME type on the server. Completion must verify the R2 object's existence and measured size before a recording becomes shareable. Use cursor pagination and consistent ownership checks; do not trust an `owner_id` supplied by the browser.
+Upload intents bind the generated object key and permitted MIME type on the server. The current single-PUT endpoint limits declared size to 4.995 GiB; completion verifies the R2 object's measured size and MIME type before a recording becomes playable. Configure bucket CORS to allow the frontend origin to send `PUT` with `Content-Type`. Treat presigned URLs as bearer tokens and keep their lifetime short. Use cursor pagination and consistent ownership checks; do not trust an `owner_id` supplied by the browser.
 
 ## Rollout
 
 1. Keep local mode as the default and preserve existing IndexedDB recordings.
-2. Configure the OTP API with PostgreSQL, SMTP, and managed secrets before enabling account signup in production.
-3. Add API authorization before enabling cloud uploads.
-4. Add private R2 upload/download flows and explicit upload progress, retry, and cancellation UI.
+2. Configure the OTP API with PostgreSQL, SMTP, and managed secrets before enabling account signup and login in production.
+3. Add API authorization before enabling cloud uploads. (Implemented for recording endpoints.)
+4. Add upload progress, retry/cancellation, and multipart uploads for large videos. (The initial client integration is implemented.)
 5. Add share creation, expiry/revocation controls, and a public read-only playback page.
 6. Add server-side media processing only after supported formats, retention, quotas, and failure handling are defined.
 

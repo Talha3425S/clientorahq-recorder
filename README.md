@@ -6,14 +6,14 @@ A browser based screen recorder built with React, TypeScript, and Vite. Screen v
 
 ## Email signup and OTP API
 
-The `/signup` page requests a six digit email code. The Express API stores only a keyed hash of each code, expires codes after 10 minutes, allows at most five verification attempts, limits resends, verifies the email, and creates an HttpOnly session cookie. A successful verification redirects to the recorder dashboard. The existing dashboard and its local recordings continue to work without an account.
+The `/signup` page requests a six digit email code for account creation; `/login` requests a sign-in code for an existing account. The Express API stores only a keyed hash of each code, expires codes after 10 minutes, allows at most five verification attempts, limits resends, and creates an HttpOnly session cookie after verification. A successful signup or login redirects to the recorder dashboard. The existing dashboard and its local recordings continue to work without an account.
 
-The OTP signup requires PostgreSQL and an SMTP account. Configure both before starting the API:
+OTP signup and login require PostgreSQL and an SMTP account. Configure both before starting the API:
 
 1. Create a PostgreSQL database, then copy `.env.example` to `.env` and set `DATABASE_URL`, the SMTP values, `SMTP_FROM`, and two independent random values for `OTP_SECRET` and `SESSION_SECRET`.
 2. Set `APP_ORIGIN` to the exact browser origin. For the default local Vite URL, use `http://localhost:5173`.
 3. In one terminal run `npm run server` (API on port 3001).
-4. In another terminal run `npm run dev` and open the Vite URL. Click the account avatar or visit `/signup`.
+4. In another terminal run `npm run dev` and open the Vite URL. Click the account avatar or visit `/signup` to create an account. Use `/login` to sign in.
 
 The API creates the auth tables on startup. In production, use HTTPS, a managed PostgreSQL service, real SMTP credentials, and a strong secret manager. The production frontend and API must be served on the same origin or configured behind a reverse proxy; the session cookie is Secure in production. Do not commit `.env` or use the sample credentials.
 
