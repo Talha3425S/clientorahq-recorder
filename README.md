@@ -17,6 +17,12 @@ OTP signup and login require PostgreSQL and an SMTP account. Configure both befo
 
 The API creates the auth tables on startup. In production, use HTTPS, a managed PostgreSQL service, real SMTP credentials, and a strong secret manager. The production frontend and API must be served on the same origin or configured behind a reverse proxy; the session cookie is Secure in production. Do not commit `.env` or use the sample credentials.
 
+## Slack contact sync
+
+Slack channel sharing can use an incoming webhook. To also sync the workspace directory, create a Slack app and set `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and `SLACK_REDIRECT_URI` in `.env`. Add the exact redirect URI `${APP_ORIGIN}/api/v1/workspace/integrations/slack/oauth/callback` to the Slack app's OAuth redirect URLs and enable the user scopes `users:read` and `users:read.email`. In Workspace Settings → Integrations, a workspace admin can connect Slack and choose when to sync contacts. The app imports member names and email addresses, stores the OAuth token encrypted, and removes imported contacts when disconnected. For local development Slack requires a reachable HTTPS callback URL; configure `SLACK_REDIRECT_URI` to that URL and proxy the callback path to the API.
+
+Google Calendar and Outlook Calendar connections are optional. Configure the matching client ID and secret in `.env`; register `${APP_ORIGIN}/api/v1/workspace/integrations/calendar/google/callback` as a Google OAuth web redirect URI and `${APP_ORIGIN}/api/v1/workspace/integrations/calendar/outlook/callback` as a Microsoft web redirect URI (or set provider-specific redirect variables). The Google app needs Calendar read-only access; the Microsoft app needs delegated `Calendars.Read`, `User.Read`, and `offline_access`. Calendar refresh tokens are encrypted with `SESSION_SECRET`. The Meetings page reads events from the next 14 days and lets the signed-in user start a browser recording for an event. The browser still asks the user to select a screen or window; recording does not start automatically. Users can disconnect a calendar from the Meetings page.
+
 ## Run locally
 
 ```sh
@@ -32,7 +38,8 @@ Open the local Vite URL in a desktop browser. Screen capture requires a secure c
 - Optional round camera bubble, with corner placement and camera controls.
 - Microphone level meter, 3 second countdown, pause/resume, restart, cancel, elapsed timer, and a 5 minute default limit with a 30 second warning.
 - Preview and trim the recording, edit its title, save it to the library, or export it as WebM or MP4 when the browser supports that format.
-- Local IndexedDB library with thumbnails, dates, durations, playback, rename, download, and delete.
+- Optional live captions in browsers that support Web Speech recognition. Recognition uses the browser speech service and may process microphone audio online; recordings remain in local browser storage.
+- Local IndexedDB library with animated GIF thumbnails, dates, durations, playback, rename, download, and delete.
 - Permission and device errors are shown in the UI. Stopping screen sharing ends the recording and releases capture tracks.
 
 ## Browser coverage
