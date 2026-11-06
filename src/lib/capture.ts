@@ -4,9 +4,9 @@ export type CaptureSurface = 'monitor' | 'window' | 'browser';
 export const getScreen = (surface: CaptureSurface = 'monitor', includeAudio = true) =>
   navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30, displaySurface: surface }, audio: includeAudio });
 
-export const getMic = (deviceId?: string) =>
+export const getMic = (deviceId?: string, noiseSuppression = true) =>
   navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: true, noiseSuppression: true, ...(deviceId ? { deviceId: { exact: deviceId } } : {}) },
+    audio: { echoCancellation: true, noiseSuppression, ...(deviceId ? { deviceId: { exact: deviceId } } : {}) },
   });
 
 export const getCamera = () =>
