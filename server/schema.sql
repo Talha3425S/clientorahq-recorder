@@ -4,10 +4,16 @@ CREATE TABLE IF NOT EXISTS users (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   email text NOT NULL UNIQUE,
   plan text NOT NULL DEFAULT 'starter',
+  business_trial_started_at timestamptz,
+  business_trial_ends_at timestamptz,
+  business_trial_converted_at timestamptz,
   email_verified_at timestamptz NOT NULL DEFAULT now(),
   created_at timestamptz NOT NULL DEFAULT now()
 );
 ALTER TABLE users ADD COLUMN IF NOT EXISTS plan text NOT NULL DEFAULT 'starter';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS business_trial_started_at timestamptz;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS business_trial_ends_at timestamptz;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS business_trial_converted_at timestamptz;
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_plan_allowed') THEN
     ALTER TABLE users ADD CONSTRAINT users_plan_allowed
