@@ -1350,6 +1350,7 @@ h1, h2, h3, .loom-logo, .workspace-card > strong { font-family: var(--f-display)
 .video-detail-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .video-detail-heading { position: sticky; top: 0; z-index: 2; min-height: 78px; margin: 0 -28px 16px; padding: 10px 28px; background: #fff; }
 .video-detail-title { width: min(100%, 700px); padding: 0; border: 0; background: transparent; color: #272b32; font-size: clamp(21px, 2vw, 26px); font-weight: 750; letter-spacing: -.035em; }
+.video-detail-back { display: block; margin: 0 0 3px; padding: 0; border: 0; background: transparent; color: #176be5; font-size: 12px; cursor: pointer; }
 .video-detail-title:focus { outline: 2px solid #176be5; outline-offset: 3px; }
 .video-detail-heading p { margin: 5px 0 0; color: #737c8a; font-size: 13px; }
 .video-view-count { flex: none; padding: 9px 12px; border: 1px solid #e0e4e9; border-radius: 8px; background: white; color: #535d6a; font-size: 13px; }

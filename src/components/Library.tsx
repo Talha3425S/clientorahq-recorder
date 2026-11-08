@@ -26,8 +26,6 @@ interface Props {
   canUpload: boolean;
   canDownload: boolean;
   onUpgrade: () => void;
-  watchLaterIds: string[];
-  onToggleWatchLater: (id: string) => void;
   screenshots: ScreenshotMeta[];
   onDeleteScreenshot: (id: string) => void;
   onDownloadScreenshot: (item: ScreenshotMeta) => void;
@@ -58,7 +56,7 @@ const FILTER_OPTIONS: Record<FilterKey, string[]> = {
 };
 const EMPTY_FILTERS: Filters = { type: [], access: [], activity: [], date: [] };
 
-export default function Library({ items, archivedItems, total, storageUsed, recordingCount, maxVideos, onOpen, onRename, onDelete, onNew, onArchive, onUpload, onDownload, onDuplicate, onShare, uploadingId, cloudUploadFeedback, canUpload, canDownload, onUpgrade, watchLaterIds, onToggleWatchLater, screenshots, onDeleteScreenshot, onDownloadScreenshot, spaces, onAssignSpaces, onSetAccess, workspaceFolders, onCreateFolder, onSetFolder, searchQuery = '', searchLoading = false, searchHasMore = false, onLoadMoreSearch }: Props) {
+export default function Library({ items, archivedItems, total, storageUsed, recordingCount, maxVideos, onOpen, onRename, onDelete, onNew, onArchive, onUpload, onDownload, onDuplicate, onShare, uploadingId, cloudUploadFeedback, canUpload, canDownload, onUpgrade, screenshots, onDeleteScreenshot, onDownloadScreenshot, spaces, onAssignSpaces, onSetAccess, workspaceFolders, onCreateFolder, onSetFolder, searchQuery = '', searchLoading = false, searchHasMore = false, onLoadMoreSearch }: Props) {
   const [now] = useState(() => Date.now());
   const [view, setView] = useState<LibraryView>('videos');
   const [folders, setFolders] = useState<string[]>(() => {

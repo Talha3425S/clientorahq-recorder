@@ -6,7 +6,7 @@ import VideoPage from './components/VideoPage';
 import PublicSharePage from './components/PublicSharePage';
 import { useRecorder } from './hooks/useRecorder';
 import { deleteRecording, deleteScreenshot, getScreenshotBlob, getVideo, listRecordings, listScreenshots, markRecordingViewed, renameRecording, saveRecording, saveScreenshot, setRecordingAccess, setRecordingArchived, setRecordingCloudId, setRecordingFolder, setRecordingSpaces, type RecordingMeta, type ScreenshotMeta } from './lib/db';
-import { addCloudTranscriptCue, createCloudComment, createCloudFolder, createCloudShareLink, createCloudSpace, deleteCloudRecording, deleteCloudScreenshot, deleteCloudTranscriptCue, downloadCloudRecording, getCloudPlaybackUrl, getCloudWorkspaceSettings, listCloudFolders, listCloudRecordings, listCloudScreenshots, listCloudSpaces, listCloudWatchLater, renameCloudRecording, replaceCloudRecordingVideo, revokeCloudShareLink, saveCloudScreenshot, searchCloudRecordings, setCloudReaction, setCloudRecordingFolder, setCloudRecordingSpaces, setCloudWatchLater, shareCloudRecordingToSlack, transferCloudRecordingOwnership, updateCloudRecording, uploadRecordingToCloud, type CloudFolder } from './lib/recordingsApi';
+import { addCloudTranscriptCue, createCloudComment, createCloudFolder, createCloudShareLink, createCloudSpace, deleteCloudRecording, deleteCloudScreenshot, deleteCloudTranscriptCue, downloadCloudRecording, getCloudPlaybackUrl, getCloudPreviewUrl, getCloudWorkspaceSettings, listCloudFolders, listCloudRecordings, listCloudScreenshots, listCloudSpaces, listCloudWatchLater, renameCloudRecording, replaceCloudRecordingVideo, revokeCloudShareLink, saveCloudScreenshot, searchCloudRecordings, setCloudReaction, setCloudRecordingFolder, setCloudRecordingSpaces, setCloudWatchLater, shareCloudRecordingToSlack, transferCloudRecordingOwnership, updateCloudRecording, uploadRecordingToCloud, type CloudFolder } from './lib/recordingsApi';
 import { downloadRecording } from './lib/download';
 import { checkSupport } from './lib/support';
 import { AdminOverview, AdminSpaces, AdminUsers, CreateSpaceModal, InsightsPage, MeetingsPage, PlaylistsPage, RecentPage, SettingsPage, SpacePage, UpgradeModal, WatchLaterPage, WorkspaceSettings, type WorkspaceSpace } from './components/WorkspacePages';
@@ -942,8 +942,6 @@ export default function App() {
             canUpload={planCapabilities.canUpload}
             canDownload={planCapabilities.canDownload}
             onUpgrade={() => setShowUpgrade(true)}
-            watchLaterIds={watchLaterIds}
-            onToggleWatchLater={toggleWatchLater}
             screenshots={screenshots}
             onDeleteScreenshot={(id) => void removeScreenshot(id)}
             onDownloadScreenshot={(screenshot) => void downloadScreenshot(screenshot)}

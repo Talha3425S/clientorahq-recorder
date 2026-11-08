@@ -525,7 +525,7 @@ export default function VideoPage({ meta, onBack, onRename, onDelete, onTrimmed,
       <div className="pdf-video-layout video-detail-layout">
         <main className="pdf-video-main video-detail-main">
           <header className="video-detail-heading">
-            <div><label className="sr-only" htmlFor="recording-title">Recording title</label><input id="recording-title" key={meta.id} className="video-detail-title" defaultValue={meta.title} maxLength={120} onBlur={(event) => commitTitle(event.currentTarget)} onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }} /><p>{meta.isCloud ? 'Workspace recording' : 'You'} - {fmtDate(meta.createdAt)}</p></div>
+            <div><button className="video-detail-back" onClick={onBack}>← Library</button><label className="sr-only" htmlFor="recording-title">Recording title</label><input id="recording-title" key={meta.id} className="video-detail-title" defaultValue={meta.title} maxLength={120} onBlur={(event) => commitTitle(event.currentTarget)} onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }} /><p>{meta.isCloud ? 'Workspace recording' : 'You'} - {fmtDate(meta.createdAt)}</p></div>
             <span className="video-view-count">{meta.viewCount ?? 0} views</span>
           </header>
           <div className="pdf-video-preview video-detail-player">
