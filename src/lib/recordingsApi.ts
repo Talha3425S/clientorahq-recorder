@@ -80,17 +80,17 @@ export async function searchCloudRecordings(query: string, offset = 0): Promise<
   return { ...data, recordings: data.recordings.map(toCloudMeta) };
 }
 
-export async function generateCloudAiAssistance(id: string): Promise<Pick<RecordingMeta, 'title' | 'summary' | 'transcript'>> {
+export async function generateCloudAiAssistance(id: string, outputLanguage?: string): Promise<Pick<RecordingMeta, 'title' | 'summary' | 'transcript'>> {
   const response = await fetch(`/api/v1/recordings/${id}/ai-assist`, {
-    method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(outputLanguage ? { outputLanguage } : {}),
   });
   const data = await readJson<{ recording: Pick<CloudRecording, 'title' | 'summary' | 'transcript'> }>(response);
   return data.recording;
 }
 
-export async function generateCloudMeetingRecap(id: string): Promise<MeetingRecap> {
+export async function generateCloudMeetingRecap(id: string, outputLanguage?: string): Promise<MeetingRecap> {
   const response = await fetch(`/api/v1/recordings/${id}/meeting-recap`, {
-    method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(outputLanguage ? { outputLanguage } : {}),
   });
   const data = await readJson<{ recap: MeetingRecap }>(response);
   return data.recap;

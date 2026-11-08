@@ -138,21 +138,29 @@ export async function saveRecording(
   title?: string,
   maxVideos = Infinity,
 ): Promise<RecordingMeta> {
+  if (!(r.blob instanceof Blob)) throw new Error('The recorder did not produce a video file. Try recording again.');
   const createdAt = Date.now();
   const meta: RecordingMeta = {
-    id: r.id,
-    title: title?.trim() || `Recording ${new Date(createdAt).toLocaleString()}`,
+    id: String(r.id),
+    title: typeof title === 'string' && title.trim() ? title.trim() : `Recording ${new Date(createdAt).toLocaleString()}`,
     createdAt,
-    durationMs: r.durationMs,
-    mimeType: r.mimeType,
+    durationMs: Number.isFinite(r.durationMs) ? Math.max(0, Math.round(r.durationMs)) : 0,
+    mimeType: String(r.mimeType || r.blob.type || 'video/webm'),
     size: r.blob.size,
     thumb: await makeThumbnail(r.blob),
     archived: false,
-    source: r.source ?? 'recorded',
-    transcript: r.transcript ?? [],
+    source: r.source === 'uploaded' || r.source === 'meeting' ? r.source : 'recorded',
+    transcript: (r.transcript ?? []).map((cue) => ({
+      id: String(cue.id),
+      startMs: Number.isFinite(cue.startMs) ? Math.max(0, Math.round(cue.startMs)) : 0,
+      text: String(cue.text),
+    })),
   };
   const db = await getDb();
-  const tx = db.transaction(['meta', 'videos'], 'readwrite');
+  // Replace the temporary recording chunks with the finished video in one
+  // transaction. This avoids needing enough browser quota for both copies at
+  // once, which can otherwise fail even when the final video would fit.
+  const tx = db.transaction(['meta', 'videos', 'chunks'], 'readwrite');
   try {
     const metaStore = tx.objectStore('meta');
     const savedMetadata = await metaStore.getAll();
@@ -161,13 +169,24 @@ export async function saveRecording(
       tx.abort();
       throw new RecordingLimitError(maxVideos);
     }
-    await Promise.all([metaStore.put(meta), tx.objectStore('videos').put(r.blob, r.id), tx.done]);
+    const chunkStore = tx.objectStore('chunks');
+    const chunkKeys = await chunkStore.getAllKeys(chunkRange(meta.id));
+    try {
+      await metaStore.put(meta);
+    } catch (error) {
+      throw new Error(`Could not save recording details in browser storage: ${error instanceof Error ? error.message : 'unknown IndexedDB error'}`);
+    }
+    try {
+      await tx.objectStore('videos').put(r.blob, meta.id);
+    } catch (error) {
+      throw new Error(`Could not save the video file in browser storage: ${error instanceof Error ? error.message : 'unknown IndexedDB error'}`);
+    }
+    for (const key of chunkKeys) await chunkStore.delete(key);
+    await tx.done;
     return meta;
   } catch (error) {
     await tx.done.catch(() => undefined);
     throw error;
-  } finally {
-    await clearChunks(r.id);
   }
 }
 

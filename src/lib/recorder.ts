@@ -205,7 +205,8 @@ export class RecorderSession {
     if (this.state === 'countdown') return this.cancel();
     if (this.state !== 'recording' && this.state !== 'paused') return;
     const mr = this.mr!;
-    const ms = this.elapsed();
+    // performance.now() is fractional; persisted durations must be whole milliseconds.
+    const ms = Math.max(0, Math.round(this.elapsed()));
     this.setState('saving');
     this.stopSpeechRecognition();
     this.stopTick?.();

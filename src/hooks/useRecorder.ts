@@ -70,7 +70,11 @@ export function useRecorder(onSaved: (m: RecordingMeta) => void, limitSec = LIMI
     } catch (error) {
       const message = error instanceof RecordingLimitError
         ? error.message
-        : 'Could not save the recording. The browser may be out of storage.';
+        : error instanceof DOMException && (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED')
+          ? 'Could not save the recording because this browser profile is out of storage. Free disk space or remove old recordings from this browser, then try again.'
+          : error instanceof Error
+            ? `Could not save the recording: ${error.message}`
+            : 'Could not save the recording. Check browser storage and try again.';
       setError(message);
       onSaveError?.(message);
     }
