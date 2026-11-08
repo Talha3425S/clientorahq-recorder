@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { RecordingMeta, ScreenshotMeta } from '../lib/db';
 import { getVideo } from '../lib/db';
 import { getCloudPreviewUrl, getCloudThumbnailUrl } from '../lib/recordingsApi';
-import { fmtDate, fmtSize, fmtTime } from '../lib/format';
+import { fmtAgo, fmtDate, fmtSize, fmtTime } from '../lib/format';
 import { Ico } from './Icons';
 
 interface Props {
@@ -19,7 +19,10 @@ interface Props {
   onArchive: (meta: RecordingMeta) => void;
   onUpload: (meta: RecordingMeta) => void;
   onDownload: (meta: RecordingMeta) => void;
+  onDuplicate: (meta: RecordingMeta) => void;
+  onShare: (meta: RecordingMeta) => Promise<string>;
   uploadingId: string | null;
+  cloudUploadFeedback: Record<string, { status: 'success' | 'error'; message: string }>;
   canUpload: boolean;
   canDownload: boolean;
   onUpgrade: () => void;
@@ -55,7 +58,7 @@ const FILTER_OPTIONS: Record<FilterKey, string[]> = {
 };
 const EMPTY_FILTERS: Filters = { type: [], access: [], activity: [], date: [] };
 
-export default function Library({ items, archivedItems, total, storageUsed, recordingCount, maxVideos, onOpen, onRename, onDelete, onNew, onArchive, onUpload, onDownload, uploadingId, canUpload, canDownload, onUpgrade, watchLaterIds, onToggleWatchLater, screenshots, onDeleteScreenshot, onDownloadScreenshot, spaces, onAssignSpaces, onSetAccess, workspaceFolders, onCreateFolder, onSetFolder, searchQuery = '', searchLoading = false, searchHasMore = false, onLoadMoreSearch }: Props) {
+export default function Library({ items, archivedItems, total, storageUsed, recordingCount, maxVideos, onOpen, onRename, onDelete, onNew, onArchive, onUpload, onDownload, onDuplicate, onShare, uploadingId, cloudUploadFeedback, canUpload, canDownload, onUpgrade, watchLaterIds, onToggleWatchLater, screenshots, onDeleteScreenshot, onDownloadScreenshot, spaces, onAssignSpaces, onSetAccess, workspaceFolders, onCreateFolder, onSetFolder, searchQuery = '', searchLoading = false, searchHasMore = false, onLoadMoreSearch }: Props) {
   const [now] = useState(() => Date.now());
   const [view, setView] = useState<LibraryView>('videos');
   const [folders, setFolders] = useState<string[]>(() => {
@@ -71,6 +74,12 @@ export default function Library({ items, archivedItems, total, storageUsed, reco
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [draftFilter, setDraftFilter] = useState<string[]>([]);
   const [openFilter, setOpenFilter] = useState<FilterKey | 'sort' | null>(null);
+  const [openActionsId, setOpenActionsId] = useState<string | null>(null);
+  const [pinnedIds, setPinnedIds] = useState<string[]>(() => {
+    try { const value: unknown = JSON.parse(localStorage.getItem('clientorahq-pinned-recordings') ?? '[]'); return Array.isArray(value) ? value.filter((id): id is string => typeof id === 'string') : []; }
+    catch { return []; }
+  });
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [sortOldest, setSortOldest] = useState(false);
   const visibleItems = view === 'archive' ? archivedItems : items;
   const heading = view === 'videos' ? 'Videos' : view === 'screenshots' ? 'Screenshots' : 'Archive';
@@ -115,6 +124,33 @@ export default function Library({ items, archivedItems, total, storageUsed, reco
     try { localStorage.setItem('clientorahq-recording-folders', JSON.stringify(next)); setFolderByRecording(next); }
     catch { window.alert('Could not save the folder assignment.'); }
   };
+  const togglePinned = (id: string) => {
+    const next = pinnedIds.includes(id) ? pinnedIds.filter((pinnedId) => pinnedId !== id) : [id, ...pinnedIds];
+    try { localStorage.setItem('clientorahq-pinned-recordings', JSON.stringify(next)); setPinnedIds(next); }
+    catch { window.alert('Could not save this pin in browser storage.'); }
+  };
+  const copyShareLink = async (meta: RecordingMeta) => {
+    if (!meta.cloudId && !meta.isCloud) { onOpen(meta.id); return; }
+    try {
+      await navigator.clipboard.writeText(await onShare(meta));
+      setCopiedId(meta.id);
+      window.setTimeout(() => setCopiedId((current) => current === meta.id ? null : current), 1800);
+    } catch { window.alert('Could not copy the share link. Open the video to check its sharing settings.'); }
+  };
+  const addToPlaylist = (id: string) => {
+    try {
+      const key = 'clientorahq-recorder-playlists';
+      const saved: unknown = JSON.parse(localStorage.getItem(key) ?? '[]');
+      const playlists = Array.isArray(saved) ? saved as { id: string; name: string; recordingIds: string[] }[] : [];
+      if (!playlists.length) { window.alert('Create a playlist first, then add videos from here.'); return; }
+      const selection = window.prompt(`Add to which playlist?\n${playlists.map((playlist, index) => `${index + 1}. ${playlist.name}`).join('\n')}\n\nEnter a number:`);
+      if (!selection) return;
+      const chosen = playlists[Number(selection) - 1];
+      if (!chosen) { window.alert('Enter a playlist number from the list.'); return; }
+      localStorage.setItem(key, JSON.stringify(playlists.map((playlist) => playlist.id === chosen.id ? { ...playlist, recordingIds: [...new Set([...playlist.recordingIds, id])] } : playlist)));
+      setOpenActionsId(null);
+    } catch { window.alert('Could not add this video to the playlist.'); }
+  };
 
   return (
     <section className="pdf-library-content" aria-label="Library">
@@ -152,22 +188,31 @@ export default function Library({ items, archivedItems, total, storageUsed, reco
           <div className="library-filters"><label className="select-all-videos"><input type="checkbox" disabled /> Select all videos</label><div>{(['type', 'access', 'activity', 'date'] as const).map((key) => <div className="filter-menu-anchor" key={key}><button className={openFilter === key ? 'is-open' : ''} onClick={() => openFilterMenu(key)}>{key === 'type' ? 'Video type' : key === 'date' ? 'Upload date' : key[0].toUpperCase() + key.slice(1)} <span><Ico n={openFilter === key ? 'chevUp' : 'chevron'} size={14} /></span></button>{openFilter === key && <div className="filter-popover"><strong>{key === 'type' ? 'Video type' : key === 'date' ? 'Upload date' : key[0].toUpperCase() + key.slice(1)}</strong>{FILTER_OPTIONS[key].map((option) => <label key={option}><input type={key === 'activity' || key === 'date' ? 'radio' : 'checkbox'} name={`filter-${key}`} checked={draftFilter.includes(option)} onChange={() => key === 'activity' || key === 'date' ? setDraftFilter([option]) : toggleDraft(option)} />{option}</label>)}<footer><button className="filter-clear" onClick={() => { setDraftFilter([]); setFilters((previous) => ({ ...previous, [key]: [] })); setOpenFilter(null); }}>Clear</button><button onClick={() => setOpenFilter(null)}>Cancel</button><button className="filter-save" onClick={() => saveFilter(key)}>Save</button></footer></div>}</div>)}<div className="filter-menu-anchor"><button className={openFilter === 'sort' ? 'is-open' : ''} onClick={() => setOpenFilter(openFilter === 'sort' ? null : 'sort')}>{sortOldest ? 'Oldest to Newest' : 'Newest to Oldest'} <span><Ico n={openFilter === 'sort' ? 'chevUp' : 'chevron'} size={14} /></span></button>{openFilter === 'sort' && <div className="filter-popover sort-popover">{[['Newest to Oldest', false], ['Oldest to Newest', true]].map(([label, oldest]) => <button key={String(label)} className="sort-option" onClick={() => { setSortOldest(Boolean(oldest)); setOpenFilter(null); }}>{label}{sortOldest === oldest && <b>✓</b>}</button>)}</div>}</div></div></div>
           <ul className="pdf-recording-grid">
             {filteredItems.map((meta) => (
-              <li key={meta.id} className="pdf-recording-card">
+              <li key={meta.id} className={`pdf-recording-card loom-video-card${openActionsId === meta.id ? ' has-open-menu' : ''}`}>
                 <VideoCardPreview meta={meta} onOpen={() => onOpen(meta.id)} />
+                <div className="library-card-byline"><span className="mini-avatar">TJ</span><p><strong>Talha Jamil <i /> {fmtAgo(meta.createdAt)}</strong><button onClick={() => setOpenActionsId(openActionsId === meta.id ? null : meta.id)}>Share to Spaces <Ico n="chevron" size={11} /></button></p></div>
                 <h2>{meta.title}</h2>
-                <div className="library-card-byline"><span className="mini-avatar">TJ</span><p><strong>You</strong><span>{fmtDate(meta.createdAt)} <i /> {displaySize(meta.size)}</span></p><span className="library-view-count" title="Viewer insights"><Ico n="eye" size={14} /> {meta.viewCount ?? meta.viewEvents?.length ?? 0}</span><button aria-label={`More actions for ${meta.title}`}><Ico n="more" size={16} /></button></div>
-                <div className="pdf-recording-actions">
-                  <button onClick={() => onOpen(meta.id)}>Play</button>
-                  {(!meta.isCloud || meta.canManage) && <button onClick={() => { const next = window.prompt('Rename recording', meta.title)?.trim(); if (next) onRename(meta.id, next); }}>Rename</button>}
-                  <button onClick={() => canDownload ? onDownload(meta) : onUpgrade()}>{canDownload ? 'Download' : 'Download · Business'}</button>
-                  {(!meta.isCloud || meta.canManage) && <button onClick={() => onArchive(meta)}>{view === 'archive' ? 'Restore' : 'Archive'}</button>}
-                  <button onClick={() => onToggleWatchLater(meta.id)}>{watchLaterIds.includes(meta.id) ? 'Remove from Watch later' : 'Watch later'}</button>
-                  {view === 'videos' && (!meta.isCloud || meta.canManage) && <label className="folder-assignment">Access <select value={meta.access ?? 'private'} onChange={(event) => onSetAccess(meta.id, event.currentTarget.value as 'private' | 'workspace')} aria-label={`Access for ${meta.title}`}><option value="private">Private</option><option value="workspace">Workspace</option></select></label>}
-                  {view === 'videos' && <label className="folder-assignment">Folder <select aria-label={`Move ${meta.title} to a folder`} value={meta.folderName ?? folderByRecording[meta.id] ?? ''} onChange={(event) => moveToFolder(meta.id, event.currentTarget.value)}><option value="">None</option>{folderNames.map((folder) => <option key={folder} value={folder}>{folder}</option>)}</select></label>}
-                  {view === 'videos' && (!meta.isCloud || meta.canManage) && spaces.length > 0 && <label className="folder-assignment">Spaces <select aria-label={`Share ${meta.title} with a Space`} value="" onChange={(event) => { const id = event.currentTarget.value; if (id) onAssignSpaces(meta.id, (meta.spaceIds ?? []).includes(id) ? (meta.spaceIds ?? []).filter((spaceId) => spaceId !== id) : [...(meta.spaceIds ?? []), id]); }}><option value="">{(meta.spaceIds ?? []).length ? `${(meta.spaceIds ?? []).length} selected` : 'Add to…'}</option>{spaces.map((space) => <option value={space.id} key={space.id}>{(meta.spaceIds ?? []).includes(space.id) ? '✓ ' : ''}{space.name} · {space.privacy}</option>)}</select></label>}
-                  {!meta.isCloud && <button onClick={() => canUpload ? onUpload(meta) : onUpgrade()} disabled={uploadingId !== null || Boolean(meta.cloudId)}>{uploadingId === meta.id ? 'Uploading…' : meta.cloudId ? 'Uploaded to cloud' : canUpload ? 'Upload to cloud' : 'Cloud upload · Business'}</button>}
-                  {(!meta.isCloud || meta.canManage) && <button className="is-danger" onClick={() => onDelete(meta)}>Delete</button>}
+                <div className="loom-video-engagement"><span><Ico n="eye" size={16} />{meta.viewCount ?? meta.viewEvents?.length ?? 0}</span><span><Ico n="message" size={16} />{meta.comments?.length ?? 0}</span><span><Ico n="smile" size={16} />{meta.reactionCount ?? 0}</span></div>
+                <div className="loom-video-quick-actions">
+                  <button className={pinnedIds.includes(meta.id) ? 'is-pinned' : ''} title={pinnedIds.includes(meta.id) ? 'Unpin video' : 'Pin video'} aria-label={pinnedIds.includes(meta.id) ? 'Unpin video' : 'Pin video'} onClick={() => togglePinned(meta.id)}><Ico n="pin" size={20} /></button>
+                  <button title={copiedId === meta.id ? 'Link copied' : 'Copy link'} aria-label="Copy link" onClick={() => void copyShareLink(meta)}><Ico n="link" size={19} /></button>
+                  <div className="loom-video-more-anchor"><button title="More actions" aria-label={`More actions for ${meta.title}`} aria-expanded={openActionsId === meta.id} onClick={() => setOpenActionsId(openActionsId === meta.id ? null : meta.id)}><Ico n="more" size={20} /></button>
+                    {openActionsId === meta.id && <div className="loom-video-actions-menu" role="menu">
+                      <button role="menuitem" onClick={() => { setOpenActionsId(null); void copyShareLink(meta); }}>Share</button>
+                      {(!meta.isCloud || meta.canManage) && <button role="menuitem" onClick={() => { setOpenActionsId(null); const next = window.prompt('Rename recording', meta.title)?.trim(); if (next) onRename(meta.id, next); }}>Rename</button>}
+                      <button role="menuitem" onClick={() => { setOpenActionsId(null); addToPlaylist(meta.id); }}>Add to playlist</button>
+                      {(!meta.isCloud || meta.canManage) && <button role="menuitem" onClick={() => { setOpenActionsId(null); onArchive(meta); }}>{view === 'archive' ? 'Restore' : 'Archive'}</button>}
+                      {view === 'videos' && <button role="menuitem" onClick={() => { setOpenActionsId(null); const next = window.prompt(`Move to folder (${folderNames.join(', ') || 'create a folder first'})`, meta.folderName ?? folderByRecording[meta.id] ?? ''); if (next !== null) moveToFolder(meta.id, next.trim()); }}>Move…</button>}
+                      {(!meta.isCloud || meta.canManage) && spaces.length > 0 && <label className="loom-menu-select">Spaces<select aria-label={`Share ${meta.title} to a Space`} value="" onChange={(event) => { const id = event.currentTarget.value; if (id) onAssignSpaces(meta.id, (meta.spaceIds ?? []).includes(id) ? (meta.spaceIds ?? []).filter((spaceId) => spaceId !== id) : [...(meta.spaceIds ?? []), id]); }}><option value="">Choose a Space</option>{spaces.map((space) => <option value={space.id} key={space.id}>{space.name}</option>)}</select></label>}
+                      {view === 'videos' && (!meta.isCloud || meta.canManage) && <label className="loom-menu-select">Access<select value={meta.access ?? 'private'} onChange={(event) => onSetAccess(meta.id, event.currentTarget.value as 'private' | 'workspace')}><option value="private">Private</option><option value="workspace">Workspace</option></select></label>}
+                      {!meta.isCloud && !meta.cloudId && <button role="menuitem" onClick={() => { setOpenActionsId(null); canUpload || meta.source !== 'uploaded' ? onUpload(meta) : onUpgrade(); }}>{uploadingId === meta.id ? 'Uploading…' : 'Save to cloud'}</button>}
+                      <button role="menuitem" onClick={() => { setOpenActionsId(null); onDuplicate(meta); }}>Duplicate</button>
+                      <button role="menuitem" onClick={() => { setOpenActionsId(null); canDownload ? onDownload(meta) : onUpgrade(); }}>Download</button>
+                      {(!meta.isCloud || meta.canManage) && <button className="is-danger" role="menuitem" onClick={() => { setOpenActionsId(null); onDelete(meta); }}>Delete</button>}
+                    </div>}
+                  </div>
                 </div>
+                {cloudUploadFeedback[meta.id] && <p className={`library-upload-feedback is-${cloudUploadFeedback[meta.id].status}`} role={cloudUploadFeedback[meta.id].status === 'error' ? 'alert' : 'status'}>{cloudUploadFeedback[meta.id].message}</p>}
               </li>
             ))}
           </ul>

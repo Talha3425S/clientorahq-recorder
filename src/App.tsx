@@ -29,22 +29,59 @@ function readWatchLaterIds(): string[] {
 
 const Ico = I.Ico;
 
-function AppHeader({ page, count, search, spaces, remote = false, canSearch, onSearch, onNavigate, onSelectSpace, onRecord, onCreateSpace, onUpgrade, onLogout }: { page: Page; count: number; search: string; spaces: WorkspaceSpace[]; remote?: boolean; canSearch: boolean; onSearch: (value: string) => void; onNavigate: (page: Page) => void; onSelectSpace: (id: string | null) => void; onRecord: () => void; onCreateSpace: () => void; onUpgrade: () => void; onLogout: () => void }) {
+function AppHeader({ page, count, search, spaces, remote = false, canSearch, onSearch, onNavigate, onSelectSpace, onRecord, onCreateSpace, onUpgrade, onLogout, recordingOpen = false, canShareCurrent = false, onShareCurrent }: { page: Page; count: number; search: string; spaces: WorkspaceSpace[]; remote?: boolean; canSearch: boolean; onSearch: (value: string) => void; onNavigate: (page: Page) => void; onSelectSpace: (id: string | null) => void; onRecord: () => void; onCreateSpace: () => void; onUpgrade: () => void; onLogout: () => void; recordingOpen?: boolean; canShareCurrent?: boolean; onShareCurrent?: () => Promise<string> }) {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [recordingMoreOpen, setRecordingMoreOpen] = useState(false);
+  const [appSwitcherOpen, setAppSwitcherOpen] = useState(false);
+  const [expandedAppGroup, setExpandedAppGroup] = useState<string | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [shareMessage, setShareMessage] = useState('');
+  const appSwitcherRef = useRef<HTMLDivElement>(null);
   const shortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘K' : 'Ctrl K';
+  const navigateFromMenu = (next: Page) => {
+    onNavigate(next);
+    setAppSwitcherOpen(false);
+    setSidebarOpen(false);
+  };
+  useEffect(() => {
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (event.target instanceof Node && !appSwitcherRef.current?.contains(event.target)) setAppSwitcherOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setAppSwitcherOpen(false);
+      setSidebarOpen(false);
+      setRecordingMoreOpen(false);
+      setProfileMenuOpen(false);
+    };
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick);
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, []);
   const item = (id: Page, icon: string, label: string, extra?: ReactNode) => (
-    <button className={page === id ? 'is-active' : ''} aria-current={page === id ? 'page' : undefined} onClick={() => onNavigate(id)}><Ico n={icon} />{label}{extra}</button>
+    <button className={page === id ? 'is-active' : ''} aria-current={page === id ? 'page' : undefined} onClick={() => navigateFromMenu(id)}><Ico n={icon} />{label}{extra}</button>
   );
+  const copyCurrentShareLink = async () => {
+    if (!canShareCurrent || !onShareCurrent) { onUpgrade(); return; }
+    try { const url = await onShareCurrent(); await navigator.clipboard.writeText(url); setShareMessage('Link copied'); window.setTimeout(() => setShareMessage(''), 1800); }
+    catch { setShareMessage('Could not create link'); window.setTimeout(() => setShareMessage(''), 2400); }
+  };
   return (
     <>
       <header className="loom-topbar">
-        <div className="loom-top-left"><button className="top-icon collapse-icon" aria-label="Collapse sidebar"><Ico n="panel" /></button><button className="top-icon apps-icon" aria-label="Apps"><Ico n="grid" /></button><div className="loom-logo"><span><Ico n="logo" size={19} /></span><strong>Clientora<span>HQ</span></strong></div></div>
+        <div className="loom-top-left"><button className={`top-icon collapse-icon${recordingOpen && sidebarOpen ? ' is-active' : ''}`} aria-label={recordingOpen ? (sidebarOpen ? 'Close sidebar' : 'Open sidebar') : (sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar')} aria-expanded={recordingOpen ? sidebarOpen : !sidebarCollapsed} onClick={() => recordingOpen ? setSidebarOpen((open) => !open) : setSidebarCollapsed((collapsed) => !collapsed)}><Ico n="panel" /></button><div className="app-switcher-anchor" ref={appSwitcherRef}><button className={`top-icon apps-icon${appSwitcherOpen ? ' is-active' : ''}`} aria-label="Open app switcher" aria-expanded={appSwitcherOpen} onClick={() => setAppSwitcherOpen((open) => !open)}><Ico n="grid" /></button>{appSwitcherOpen && <div className="app-switcher-menu" role="menu" aria-label="Atlassian apps"><button className="app-switcher-row" role="menuitem" onClick={() => navigateFromMenu('for-you')}><span className="app-switcher-icon is-home"><Ico n="home" size={19} /></span><span><strong>Home</strong><small>ClientoraHQ</small></span></button><div className="app-switcher-group"><button className="app-switcher-row" aria-expanded={expandedAppGroup === 'goals'} onClick={() => setExpandedAppGroup((open) => open === 'goals' ? null : 'goals')}><span className="app-switcher-icon"><Ico n="target" size={18} /></span><span><strong>Goals</strong><small>Workspace insights</small></span><Ico n={expandedAppGroup === 'goals' ? 'chevUp' : 'chevron'} size={15} /></button>{expandedAppGroup === 'goals' && <div className="app-switcher-submenu"><button onClick={() => navigateFromMenu('admin-insights')}>Insights</button><button onClick={() => navigateFromMenu('admin-overview')}>Overview</button></div>}</div><div className="app-switcher-group"><button className="app-switcher-row" aria-expanded={expandedAppGroup === 'projects'} onClick={() => setExpandedAppGroup((open) => open === 'projects' ? null : 'projects')}><span className="app-switcher-icon"><Ico n="rocket" size={18} /></span><span><strong>Projects</strong><small>Videos and playlists</small></span><Ico n={expandedAppGroup === 'projects' ? 'chevUp' : 'chevron'} size={15} /></button>{expandedAppGroup === 'projects' && <div className="app-switcher-submenu"><button onClick={() => navigateFromMenu('library')}>Library</button><button onClick={() => navigateFromMenu('playlists')}>Playlists</button><button onClick={() => navigateFromMenu('recent')}>Recent</button></div>}</div><div className="app-switcher-group"><button className="app-switcher-row" aria-expanded={expandedAppGroup === 'teams'} onClick={() => setExpandedAppGroup((open) => open === 'teams' ? null : 'teams')}><span className="app-switcher-icon"><Ico n="users" size={18} /></span><span><strong>Teams</strong><small>ClientoraHQ workspace</small></span><Ico n={expandedAppGroup === 'teams' ? 'chevUp' : 'chevron'} size={15} /></button>{expandedAppGroup === 'teams' && <div className="app-switcher-submenu"><button onClick={() => navigateFromMenu('admin-users')}>Users</button><button onClick={() => navigateFromMenu('admin-spaces')}>Spaces</button><button onClick={() => navigateFromMenu('meetings')}>Meetings</button></div>}</div><div className="app-switcher-group"><button className="app-switcher-row" onClick={() => navigateFromMenu('workspace-settings')}><span className="app-switcher-icon"><Ico n="building" size={18} /></span><span><strong>Administration</strong><small>Workspace settings</small></span></button></div><div className="app-switcher-recommended"><strong>Recommended for your team</strong><button className="app-switcher-row" onClick={() => navigateFromMenu('playlists')}><span className="app-switcher-icon is-app-grid"><Ico n="grid" size={17} /></span><span><strong>Playlists and tools <em>New</em></strong><small>Organize and share your videos</small></span></button><button className="app-switcher-row" onClick={() => navigateFromMenu('admin-atlassian')}><span className="app-switcher-icon is-app-grid"><Ico n="grid" size={17} /></span><span><strong>More Atlassian apps</strong><small>Browse workspace integrations</small></span></button></div></div>}</div><div className="loom-logo"><span><Ico n="logo" size={19} /></span><strong>Clientora<span>HQ</span></strong></div></div>
         <label className={canSearch ? 'global-search' : 'global-search is-locked'}><Ico n="search" size={17} /><input value={search} onChange={(event) => onSearch(event.currentTarget.value)} onClick={() => { if (!canSearch) onUpgrade(); }} readOnly={!canSearch} title={canSearch ? undefined : 'Upgrade to Business to search your workspace.'} placeholder={canSearch ? 'Search videos, folders and transcripts' : 'Search is available on Business'} aria-label={canSearch ? 'Search workspace content' : 'Search (Business plan required)'} />{canSearch && <kbd>{shortcut}</kbd>}</label>
-        <div className="loom-top-actions"><button className="upgrade-button" onClick={onUpgrade}><Ico n="spark" size={15} />Upgrade</button><button className="top-icon" aria-label="Help"><Ico n="help" /></button><button className="top-icon notification-button" aria-label="Notifications"><Ico n="bell" /><i>2</i></button><div className="account-menu-anchor"><button className="user-avatar" aria-label="Account menu" title="Account menu" aria-haspopup="menu" aria-expanded={profileMenuOpen} onClick={() => setProfileMenuOpen((open) => !open)}>TJ</button>{profileMenuOpen && <div className="profile-menu" role="menu"><strong>Account</strong><button role="menuitem" onClick={() => { setProfileMenuOpen(false); onLogout(); }}>Sign out</button></div>}</div></div>
+        <div className="loom-top-actions">{recordingOpen && <div className="video-global-actions"><button className="video-global-share" onClick={() => void copyCurrentShareLink()}><span aria-hidden="true">&#9678;</span> Share</button><button className="video-global-link" onClick={() => void copyCurrentShareLink()} aria-label="Copy recording link">&#128279;</button><button className="top-icon" aria-label="More recording options" aria-expanded={recordingMoreOpen} onClick={() => setRecordingMoreOpen((open) => !open)}>&#8943;</button>{recordingMoreOpen && <div className="video-more-menu" role="menu"><button role="menuitem" onClick={() => { setRecordingMoreOpen(false); onNavigate('library'); }}>Back to library</button><button role="menuitem" onClick={() => { setRecordingMoreOpen(false); onUpgrade(); }}>Upgrade plan</button></div>}{shareMessage && <span className="video-share-feedback" role="status">{shareMessage}</span>}</div>}{!recordingOpen && <button className="upgrade-button" onClick={onUpgrade}><Ico n="spark" size={15} />Upgrade</button>}<button className="top-icon" aria-label="Help"><Ico n="help" /></button><button className="top-icon notification-button" aria-label="Notifications"><Ico n="bell" /><i>2</i></button><div className="account-menu-anchor"><button className="user-avatar" aria-label="Account menu" title="Account menu" aria-haspopup="menu" aria-expanded={profileMenuOpen} onClick={() => setProfileMenuOpen((open) => !open)}>TJ</button>{profileMenuOpen && <div className="profile-menu" role="menu"><strong>Account</strong><button role="menuitem" onClick={() => { setProfileMenuOpen(false); onLogout(); }}>Sign out</button></div>}</div></div>
       </header>
-      <aside className="loom-sidebar">
+      {recordingOpen && sidebarOpen && <button className="sidebar-drawer-backdrop" aria-label="Close sidebar" onClick={() => setSidebarOpen(false)} />}
+      <aside className={`loom-sidebar${recordingOpen ? ' is-recording-sidebar' : sidebarCollapsed ? ' is-collapsed' : ''}${recordingOpen && sidebarOpen ? ' is-open' : ''}`}>
+        {recordingOpen && <div className="sidebar-drawer-head"><div className="loom-logo"><span><Ico n="logo" size={19} /></span><strong>Loom</strong></div><button className="top-icon" aria-label="Close sidebar" onClick={() => setSidebarOpen(false)}><Ico n="panel" /></button></div>}
         <div className="loom-sidebar-scroll">
-        <div className="workspace-card"><strong title="ClientoraHQ workspace">ClientoraHQ <span><Ico n="chevron" size={16} /></span></strong><div><span className="default-chip">Default</span><i /><span>1 member</span></div><button onClick={() => onNavigate('admin-users')}><Ico n="userPlus" size={16} />Invite teammates</button></div>
+        <div className="workspace-card"><strong title="ClientoraHQ workspace">ClientoraHQ <span><Ico n="chevron" size={16} /></span></strong><div><span className="default-chip">Default</span><i /><span>1 member</span></div><button onClick={() => navigateFromMenu('admin-users')}><Ico n="userPlus" size={16} />Invite teammates</button></div>
         <nav className="workspace-nav" aria-label="Workspace navigation">
           {item('for-you', 'compass', 'For you')}
           {item('library', 'play', 'Library', count > 0 ? <small>{count}</small> : null)}
@@ -58,20 +95,20 @@ function AppHeader({ page, count, search, spaces, remote = false, canSearch, onS
         <p className="sidebar-section-label">Admin tools</p>
         <nav className="workspace-nav admin-nav" aria-label="Admin tools">
           {item('admin-overview', 'grid', 'Overview')}
-          <button className={page === 'admin-users' || page === 'admin-spaces' ? 'is-active' : ''} onClick={() => onNavigate('admin-users')}><Ico n="users" />Manage</button>
-          <button className={`admin-subnav${page === 'admin-users' ? ' is-active' : ''}`} onClick={() => onNavigate('admin-users')}>Users</button>
-          <button className={`admin-subnav${page === 'admin-spaces' ? ' is-active' : ''}`} onClick={() => onNavigate('admin-spaces')}>Spaces</button>
+          <button className={page === 'admin-users' || page === 'admin-spaces' ? 'is-active' : ''} onClick={() => navigateFromMenu('admin-users')}><Ico n="users" />Manage</button>
+          <button className={`admin-subnav${page === 'admin-users' ? ' is-active' : ''}`} onClick={() => navigateFromMenu('admin-users')}>Users</button>
+          <button className={`admin-subnav${page === 'admin-spaces' ? ' is-active' : ''}`} onClick={() => navigateFromMenu('admin-spaces')}>Spaces</button>
           {item('admin-insights', 'chart', 'Insights')}
           {item('workspace-settings', 'building', 'Workspace')}
           {item('admin-billing', 'card', 'Billing')}
           {item('admin-atlassian', 'plug', 'Integrations')}
         </nav>
         <div className="sidebar-divider spaces-divider" />
-        <div className="sidebar-spaces-heading"><span>Spaces</span><button aria-label="Create a space" title="Create a space" onClick={onCreateSpace}><Ico n="plus" size={16} /></button></div>
-        <nav className="workspace-nav spaces-nav" aria-label="Spaces"><button onClick={() => onNavigate('admin-spaces')}><Ico n="layers" />Browse all Spaces</button>{spaces.map((space) => <button key={space.id} className={page === 'space' ? 'is-active' : ''} onClick={() => { onSelectSpace(space.id); onNavigate('space'); }}><b className="space-avatar">{space.name.slice(0, 1).toUpperCase()}</b>{space.name}</button>)}<button onClick={() => { onSelectSpace(null); onNavigate('library'); }}><b className="space-avatar">A</b>All workspace videos</button></nav>
+        <div className="sidebar-spaces-heading"><span>Spaces</span><button aria-label="Create a space" title="Create a space" onClick={() => { setSidebarOpen(false); onCreateSpace(); }}><Ico n="plus" size={16} /></button></div>
+        <nav className="workspace-nav spaces-nav" aria-label="Spaces"><button onClick={() => navigateFromMenu('admin-spaces')}><Ico n="layers" />Browse all Spaces</button>{spaces.map((space) => <button key={space.id} className={page === 'space' ? 'is-active' : ''} onClick={() => { onSelectSpace(space.id); navigateFromMenu('space'); }}><b className="space-avatar">{space.name.slice(0, 1).toUpperCase()}</b>{space.name}</button>)}<button onClick={() => { onSelectSpace(null); navigateFromMenu('library'); }}><b className="space-avatar">A</b>All workspace videos</button></nav>
         <div className="sidebar-local-note"><i /> {remote ? 'Workspace synced' : 'Saved on this device'}</div>
         </div>
-        <button className="sidebar-record-button" onClick={onRecord}><Ico n="video" size={20} /> New recording</button>
+        <button className="sidebar-record-button" onClick={onRecord}><Ico n="video" size={20} /> Record a video</button>
       </aside>
     </>
   );
@@ -89,6 +126,7 @@ export default function App() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [cloudPlaybackUrl, setCloudPlaybackUrl] = useState<string | null>(null);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
+  const [cloudUploadFeedback, setCloudUploadFeedback] = useState<Record<string, { status: 'success' | 'error'; message: string }>>({});
   const [page, setPage] = useState<Page>('for-you');
   const [openId, setOpenId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -100,6 +138,7 @@ export default function App() {
   const [showCreateSpace, setShowCreateSpace] = useState(false);
   const [showUpgrade, setShowUpgrade] = useState(false);
   const [plan, setPlan] = useState<PlanId>('starter');
+  const [businessTrial, setBusinessTrial] = useState({ startedAt: null as string | null, endsAt: null as string | null, daysRemaining: 0, active: false, expired: false });
   const [localDemo, setLocalDemo] = useState(false);
   const [watchLaterIds, setWatchLaterIds] = useState<string[]>(readWatchLaterIds);
   const planCapabilities = PLAN_CAPABILITIES[plan];
@@ -126,8 +165,10 @@ export default function App() {
     void fetch('/api/v1/auth/me', { credentials: 'same-origin' }).then(async (response) => {
       if (cancelled) return;
       if (response.ok) {
-        const payload = await response.json() as { user?: { plan?: unknown } };
+        const payload = await response.json() as { user?: { plan?: unknown; businessTrialStartedAt?: string | null; businessTrialEndsAt?: string | null; businessTrialDaysRemaining?: number; isBusinessTrial?: boolean; businessTrialExpired?: boolean } };
         if (isPlanId(payload.user?.plan)) setPlan(payload.user.plan);
+        setBusinessTrial({ startedAt: payload.user?.businessTrialStartedAt ?? null, endsAt: payload.user?.businessTrialEndsAt ?? null, daysRemaining: payload.user?.businessTrialDaysRemaining ?? 0, active: payload.user?.isBusinessTrial ?? false, expired: payload.user?.businessTrialExpired ?? false });
+        if (payload.user?.businessTrialExpired) setNotice('Your 14-day Business trial has ended. Your workspace is now on Starter. Choose Business to restore Business features.');
         if (isAuthPage) window.location.replace('/');
         else setAuthStatus('authenticated');
       } else if (response.status === 401) {
@@ -141,6 +182,25 @@ export default function App() {
     });
     return () => { cancelled = true; };
   }, [isAuthPage]);
+
+  useEffect(() => {
+    if (!businessTrial.active || !businessTrial.endsAt || authStatus !== 'authenticated' || localDemo) return undefined;
+    let cancelled = false;
+    const refreshTrial = async () => {
+      try {
+        const response = await fetch('/api/v1/auth/me', { credentials: 'same-origin' });
+        if (!response.ok) return;
+        const payload = await response.json() as { user?: { plan?: unknown; businessTrialStartedAt?: string | null; businessTrialEndsAt?: string | null; businessTrialDaysRemaining?: number; isBusinessTrial?: boolean; businessTrialExpired?: boolean } };
+        if (cancelled || !payload.user) return;
+        if (isPlanId(payload.user.plan)) setPlan(payload.user.plan);
+        const next = { startedAt: payload.user.businessTrialStartedAt ?? null, endsAt: payload.user.businessTrialEndsAt ?? null, daysRemaining: payload.user.businessTrialDaysRemaining ?? 0, active: payload.user.isBusinessTrial ?? false, expired: payload.user.businessTrialExpired ?? false };
+        setBusinessTrial(next);
+        if (!next.active && next.expired) setNotice('Your 14-day Business trial has ended. Your workspace is now on Starter. Choose Business to restore Business features.');
+      } catch { /* Keep the current trial status until the account service is reachable. */ }
+    };
+    const interval = window.setInterval(() => void refreshTrial(), 60_000);
+    return () => { cancelled = true; window.clearInterval(interval); };
+  }, [authStatus, businessTrial.active, businessTrial.endsAt, localDemo]);
 
   useEffect(() => {
     let cancelled = false;
@@ -246,6 +306,7 @@ export default function App() {
     if (authStatus === 'authenticated' && !localDemo) {
       void (async () => {
         setUploadingId(meta.id);
+        setCloudUploadFeedback((previous) => { const next = { ...previous }; delete next[meta.id]; return next; });
         try {
           const blob = await getVideo(meta.id);
           if (!blob) throw new Error('The saved recording is no longer available in browser storage.');
@@ -253,9 +314,14 @@ export default function App() {
           await setRecordingCloudId(meta.id, cloudMeta.id);
           setItems((previous) => previous.map((item) => item.id === meta.id ? { ...item, cloudId: cloudMeta.id } : item));
           setCloudItems((previous) => [cloudMeta, ...previous.filter((item) => item.id !== cloudMeta.id)]);
-          setNotice('Recording saved in your cloud library.');
+          const successMessage = 'Saved successfully';
+          setCloudUploadFeedback((previous) => ({ ...previous, [meta.id]: { status: 'success', message: successMessage } }));
+          setNotice(successMessage);
         } catch (error) {
-          setMessage(error instanceof Error ? `Recording is saved on this device; cloud backup failed: ${error.message}` : 'Recording is saved on this device; cloud backup failed.');
+          const detail = error instanceof Error ? error.message : 'Check the Supabase storage settings and try again.';
+          const failureMessage = `Upload failed. The recording is saved on this device only. ${detail}`;
+          setCloudUploadFeedback((previous) => ({ ...previous, [meta.id]: { status: 'error', message: failureMessage } }));
+          setMessage(failureMessage);
         } finally {
           setUploadingId(null);
         }
@@ -526,14 +592,22 @@ export default function App() {
   };
 
   const uploadToCloud = async (meta: RecordingMeta) => {
-    if (!planCapabilities.canUpload) {
+    const isExistingVideoImport = meta.source === 'uploaded';
+    if (!planCapabilities.canUpload && isExistingVideoImport) {
       setNotice('Cloud uploads are available on Business plans. Choose a plan to continue.');
       setShowUpgrade(true);
       return;
     }
+    if (authStatus !== 'authenticated' || localDemo) {
+      setNotice('Sign in to your workspace to back up recordings to Supabase.');
+      window.location.assign('/login');
+      return;
+    }
     if (uploadingId) return;
     setUploadingId(meta.id);
+    setCloudUploadFeedback((previous) => { const next = { ...previous }; delete next[meta.id]; return next; });
     setMessage(null);
+    setNotice(null);
     try {
       const blob = await getVideo(meta.id);
       if (!blob) throw new Error('This video is no longer available in local browser storage.');
@@ -541,9 +615,14 @@ export default function App() {
       await setRecordingCloudId(meta.id, cloudMeta.id);
       setItems((previous) => previous.map((item) => item.id === meta.id ? { ...item, cloudId: cloudMeta.id } : item));
       setCloudItems((previous) => [cloudMeta, ...previous.filter((item) => item.id !== cloudMeta.id)]);
-      setNotice('Video uploaded to your cloud library.');
+      const successMessage = 'Saved successfully';
+      setCloudUploadFeedback((previous) => ({ ...previous, [meta.id]: { status: 'success', message: successMessage } }));
+      setNotice(successMessage);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not upload this video.');
+      const detail = error instanceof Error ? error.message : 'Check the Supabase storage settings and try again.';
+      const failureMessage = `Upload failed. The recording is saved on this device only. ${detail}`;
+      setCloudUploadFeedback((previous) => ({ ...previous, [meta.id]: { status: 'error', message: failureMessage } }));
+      setMessage(failureMessage);
     } finally {
       setUploadingId(null);
     }
@@ -552,6 +631,7 @@ export default function App() {
   const retryCloudBackup = async (meta: RecordingMeta) => {
     if (authStatus !== 'authenticated' || localDemo || uploadingId) return;
     setUploadingId(meta.id);
+    setCloudUploadFeedback((previous) => { const next = { ...previous }; delete next[meta.id]; return next; });
     setMessage(null);
     try {
       const blob = await getVideo(meta.id);
@@ -560,9 +640,14 @@ export default function App() {
       await setRecordingCloudId(meta.id, cloudMeta.id);
       setItems((previous) => previous.map((item) => item.id === meta.id ? { ...item, cloudId: cloudMeta.id } : item));
       setCloudItems((previous) => [cloudMeta, ...previous.filter((item) => item.id !== cloudMeta.id)]);
-      setNotice('Recording backed up. Share links are available; embedded players require Business.');
+      const successMessage = 'Saved successfully';
+      setCloudUploadFeedback((previous) => ({ ...previous, [meta.id]: { status: 'success', message: successMessage } }));
+      setNotice(successMessage);
     } catch (error) {
-      setMessage(error instanceof Error ? `Could not back up this recording: ${error.message}` : 'Could not back up this recording. Check the workspace storage connection.');
+      const detail = error instanceof Error ? error.message : 'Check the Supabase storage settings and try again.';
+      const failureMessage = `Upload failed. The recording is saved on this device only. ${detail}`;
+      setCloudUploadFeedback((previous) => ({ ...previous, [meta.id]: { status: 'error', message: failureMessage } }));
+      setMessage(failureMessage);
     } finally {
       setUploadingId(null);
     }
@@ -663,6 +748,28 @@ export default function App() {
   };
 
   const shareRecording = async (meta: RecordingMeta) => createCloudShareLink(meta.isCloud ? meta.id : meta.cloudId!);
+  const duplicateRecording = async (meta: RecordingMeta) => {
+    try {
+      const sourceBlob = meta.isCloud
+        ? await fetch(await getCloudPreviewUrl(meta.id)).then((response) => {
+          if (!response.ok) throw new Error('Could not download the cloud recording for duplication.');
+          return response.blob();
+        })
+        : await getVideo(meta.id);
+      if (!sourceBlob) throw new Error('This recording is not available in browser storage.');
+      const duplicate = await saveRecording({
+        id: crypto.randomUUID(),
+        blob: sourceBlob,
+        durationMs: meta.durationMs,
+        mimeType: meta.mimeType,
+        source: meta.source ?? 'recorded',
+        transcript: meta.transcript ?? [],
+      }, `${meta.title} copy`.slice(0, 120), planCapabilities.maxVideos);
+      onSaved(duplicate);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not duplicate this recording.');
+    }
+  };
   const sendRecordingToSlack = async (meta: RecordingMeta, shareUrl: string) => shareCloudRecordingToSlack(meta.isCloud ? meta.id : meta.cloudId!, shareUrl);
   const revokeRecordingShare = async (meta: RecordingMeta) => revokeCloudShareLink(meta.isCloud ? meta.id : meta.cloudId!);
   const transferRecordingOwnership = useCallback(async (meta: RecordingMeta, memberId: string) => {
@@ -701,11 +808,26 @@ export default function App() {
       const payload = await response.json() as { plan?: unknown; error?: { message?: string } };
       if (!response.ok || !isPlanId(payload.plan)) throw new Error(payload.error?.message || 'Could not update your plan.');
       setPlan(payload.plan);
+      setBusinessTrial((current) => ({ ...current, active: false, expired: false, daysRemaining: 0 }));
       setShowUpgrade(false);
       const selectedName = PLANS.find((entry) => entry.id === payload.plan)?.name ?? 'Starter';
-      setNotice(`${selectedName} selected for feature testing. No payment was processed.`);
+      setNotice(payload.plan === 'starter' ? 'Starter selected for feature testing.' : `${selectedName} demo checkout completed. No real payment was taken.`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not update your plan. Check your connection and try again.');
+    }
+  };
+
+  const startBusinessTrial = async () => {
+    try {
+      const response = await fetch('/api/v1/account/trial/start', { method: 'POST', credentials: 'same-origin' });
+      const payload = await response.json() as { plan?: unknown; isBusinessTrial?: boolean; businessTrialStartedAt?: string; businessTrialEndsAt?: string; error?: { message?: string } };
+      if (!response.ok || payload.plan !== 'business' || !payload.businessTrialEndsAt) throw new Error(payload.error?.message || 'Could not start the Business trial.');
+      setPlan('business');
+      setBusinessTrial({ startedAt: payload.businessTrialStartedAt ?? null, endsAt: payload.businessTrialEndsAt, daysRemaining: Math.max(1, Math.ceil((Date.parse(payload.businessTrialEndsAt) - Date.now()) / 86_400_000)), active: payload.isBusinessTrial ?? true, expired: false });
+      setShowUpgrade(false);
+      setNotice('Your 14-day Business trial is active. AI features require Business + AI.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not start your Business trial. Please try again.');
     }
   };
 
@@ -734,9 +856,10 @@ export default function App() {
   const storageUsed = items.reduce((sum, meta) => sum + meta.size, 0) + screenshots.reduce((sum, screenshot) => sum + screenshot.size, 0);
 
   return (
-    <div className="loom-app-shell">
-      <AppHeader page={visiblePage} count={activeItems.length} search={search} spaces={spaces} canSearch={planCapabilities.canSearch} remote={authStatus === 'authenticated' && !localDemo} onSearch={updateSearch} onNavigate={navigate} onSelectSpace={setSelectedSpaceId} onRecord={() => startRecording()} onCreateSpace={() => setShowCreateSpace(true)} onUpgrade={() => setShowUpgrade(true)} onLogout={() => void logOut()} />
-      <main className={`loom-main${visiblePage === 'for-you' && !current ? ' is-home' : ''}`}>
+    <div className={`loom-app-shell${businessTrial.active ? ' has-business-trial' : ''}`}>
+      <AppHeader page={visiblePage} count={activeItems.length} search={search} spaces={spaces} canSearch={planCapabilities.canSearch} remote={authStatus === 'authenticated' && !localDemo} onSearch={updateSearch} onNavigate={navigate} onSelectSpace={setSelectedSpaceId} onRecord={() => startRecording()} onCreateSpace={() => setShowCreateSpace(true)} onUpgrade={() => setShowUpgrade(true)} onLogout={() => void logOut()} recordingOpen={Boolean(current)} canShareCurrent={Boolean(current?.canManage && (current.isCloud || current.cloudId) && authStatus === 'authenticated' && !localDemo)} onShareCurrent={current && current.canManage && (current.isCloud || current.cloudId) && authStatus === 'authenticated' && !localDemo ? () => shareRecording(current) : undefined} />
+      {businessTrial.active && <div className="video-trial-banner"><span><strong>{businessTrial.daysRemaining} {businessTrial.daysRemaining === 1 ? 'day' : 'days'} left in your Business trial.</strong> Upgrade before it ends to keep Business features.</span><button onClick={() => setShowUpgrade(true)}><span aria-hidden="true">&#9672;</span> Upgrade</button></div>}
+      <main className={`loom-main${visiblePage === 'for-you' && !current ? ' is-home' : ''}${current ? ' is-video-open' : ''}`}>
         {(message || notice) && <p role="status" className="pdf-message">{message || notice}<button aria-label="Dismiss message" onClick={() => { setMessage(null); setNotice(null); }}><I.Close /></button></p>}
         {current ? (
           <VideoPage
@@ -754,6 +877,7 @@ export default function App() {
             onRevokeShare={() => revokeRecordingShare(current)}
             onShareSlack={(shareUrl) => sendRecordingToSlack(current, shareUrl)}
             onTransferOwnership={current.canManage && (current.isCloud || current.cloudId) && authStatus === 'authenticated' && !localDemo ? (memberId) => transferRecordingOwnership(current, memberId) : undefined}
+            onSetAccess={(id, access) => void changeRecordingAccess(id, access)}
             canTrim={planCapabilities.canTrim}
             canDownload={planCapabilities.canDownload}
             canEmbed={planCapabilities.canEmbed}
@@ -811,7 +935,10 @@ export default function App() {
             onArchive={(meta) => void toggleArchive(meta)}
             onUpload={(meta) => void uploadToCloud(meta)}
             onDownload={(meta) => void download(meta)}
+            onDuplicate={(meta) => void duplicateRecording(meta)}
+            onShare={shareRecording}
             uploadingId={uploadingId}
+            cloudUploadFeedback={cloudUploadFeedback}
             canUpload={planCapabilities.canUpload}
             canDownload={planCapabilities.canDownload}
             onUpgrade={() => setShowUpgrade(true)}
@@ -884,7 +1011,7 @@ export default function App() {
           } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not create this Space.'); }
         })();
       }} />}
-      {showUpgrade && <UpgradeModal currentPlan={plan} onClose={() => setShowUpgrade(false)} onChoose={(nextPlan) => void choosePlan(nextPlan)} />}
+      {showUpgrade && <UpgradeModal currentPlan={plan} isBusinessTrial={businessTrial.active} businessTrialUsed={Boolean(businessTrial.startedAt)} onStartBusinessTrial={() => void startBusinessTrial()} onClose={() => setShowUpgrade(false)} onChoose={(nextPlan) => void choosePlan(nextPlan)} />}
     </div>
   );
 }

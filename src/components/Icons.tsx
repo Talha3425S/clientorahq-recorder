@@ -59,11 +59,17 @@ const ICONS: Record<string, string> = {
   'corner-bl': '<path d="M17 7 7 17M15 17H7V9"/>',
   'corner-br': '<path d="M7 7l10 10M17 9v8H9"/>',
   home: '<path d="m3 11 9-7.5 9 7.5"/><path d="M5 9.5V20h5v-6h4v6h5V9.5"/>',
+  target: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M12 2v3M22 12h-3M12 22v-3M2 12h3"/>',
+  rocket: '<path d="M5 15c-1.5 0-2.5 1-3 4 3-.5 4-1.5 4-3"/><path d="M8 14 5 11l4-1 3-5c2-3 5-3 7-3 0 2 0 5-3 7l-5 3-1 4z"/><circle cx="15" cy="7" r="1.5"/>',
   palette: '<path d="M12 3a9 9 0 1 0 0 18c1.3 0 2-.9 2-1.9 0-.6-.3-1-.6-1.4-.4-.5-.6-.9-.6-1.5 0-1 .8-1.7 1.8-1.7H17a4 4 0 0 0 4-4C21 6.6 17 3 12 3z"/><path d="M7.5 11h.01M10 7.5h.01M15 7.5h.01"/>',
   mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
   cc: '<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M10 10.2a2.2 2.2 0 1 0 0 3.6M16.5 10.2a2.2 2.2 0 1 0 0 3.6"/>',
   volume: '<path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>',
   chevL: '<path d="m15 18-6-6 6-6"/>',
+  pin: '<path d="M16 3 21 8l-4 1-4 4v5l-2 2v-7L7 9 4 8l5-5 2 4 4 4 4-4z"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.1 0l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1"/><path d="M14 11a5 5 0 0 0-7.1 0l-2 2A5 5 0 0 0 12 20.1l1.1-1.1"/>',
+  message: '<path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8z"/>',
+  smile: '<circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/>',
 };
 
 export function Ico({ n, size = 18 }: { n: string; size?: number }) {
