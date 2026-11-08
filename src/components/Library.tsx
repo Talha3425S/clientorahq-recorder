@@ -3,6 +3,7 @@ import type { RecordingMeta, ScreenshotMeta } from '../lib/db';
 import { getVideo } from '../lib/db';
 import { getCloudPreviewUrl, getCloudThumbnailUrl } from '../lib/recordingsApi';
 import { fmtDate, fmtSize, fmtTime } from '../lib/format';
+import { Ico } from './Icons';
 
 interface Props {
   items: RecordingMeta[];
@@ -33,6 +34,10 @@ interface Props {
   workspaceFolders?: { id: string; name: string }[];
   onCreateFolder?: (name: string) => Promise<void>;
   onSetFolder?: (id: string, name: string) => void;
+  searchQuery?: string;
+  searchLoading?: boolean;
+  searchHasMore?: boolean;
+  onLoadMoreSearch?: () => void;
 }
 
 const displaySize = (bytes: number) => bytes < 1_000_000
@@ -43,14 +48,14 @@ type LibraryView = 'videos' | 'screenshots' | 'archive';
 type FilterKey = 'type' | 'access' | 'activity' | 'date';
 type Filters = Record<FilterKey, string[]>;
 const FILTER_OPTIONS: Record<FilterKey, string[]> = {
-  type: ['Meeting recordings', 'Loom videos'],
-  access: ['Private on this device', 'Workspace only'],
+  type: ['Meeting recordings', 'Screen recordings'],
+  access: ['Only me', 'Workspace'],
   activity: ['Never watched', 'Stale', 'Older than 30 days', 'Older than 90 days', 'Older than 180 days'],
   date: ['Today', 'This month', 'This year'],
 };
 const EMPTY_FILTERS: Filters = { type: [], access: [], activity: [], date: [] };
 
-export default function Library({ items, archivedItems, total, storageUsed, recordingCount, maxVideos, onOpen, onRename, onDelete, onNew, onArchive, onUpload, onDownload, uploadingId, canUpload, canDownload, onUpgrade, watchLaterIds, onToggleWatchLater, screenshots, onDeleteScreenshot, onDownloadScreenshot, spaces, onAssignSpaces, onSetAccess, workspaceFolders, onCreateFolder, onSetFolder }: Props) {
+export default function Library({ items, archivedItems, total, storageUsed, recordingCount, maxVideos, onOpen, onRename, onDelete, onNew, onArchive, onUpload, onDownload, uploadingId, canUpload, canDownload, onUpgrade, watchLaterIds, onToggleWatchLater, screenshots, onDeleteScreenshot, onDownloadScreenshot, spaces, onAssignSpaces, onSetAccess, workspaceFolders, onCreateFolder, onSetFolder, searchQuery = '', searchLoading = false, searchHasMore = false, onLoadMoreSearch }: Props) {
   const [now] = useState(() => Date.now());
   const [view, setView] = useState<LibraryView>('videos');
   const [folders, setFolders] = useState<string[]>(() => {
@@ -76,7 +81,7 @@ export default function Library({ items, archivedItems, total, storageUsed, reco
     const today = new Date();
     const selectedType = filters.type;
     if (selectedType.length && !selectedType.some((type) => type === 'Meeting recordings' ? meta.source === 'meeting' : meta.source !== 'meeting')) return false;
-    if (filters.access.length && !filters.access.includes(meta.access === 'workspace' ? 'Workspace only' : 'Private on this device')) return false;
+    if (filters.access.length && !filters.access.includes(meta.access === 'workspace' ? 'Workspace' : 'Only me')) return false;
     if (filters.activity.includes('Never watched') && meta.lastViewedAt) return false;
     const staleThreshold = filters.activity.includes('Older than 180 days') ? 180 : filters.activity.includes('Older than 90 days') ? 90 : filters.activity.includes('Older than 30 days') || filters.activity.includes('Stale') ? 30 : 0;
     if (staleThreshold && (!meta.lastViewedAt || now - meta.lastViewedAt < staleThreshold * 86_400_000)) return false;
@@ -115,8 +120,8 @@ export default function Library({ items, archivedItems, total, storageUsed, reco
     <section className="pdf-library-content" aria-label="Library">
       <div className="loom-library-heading">
         <div><span>Library</span><h1>{heading}</h1></div>
-        {view === 'videos' && <div className="library-heading-actions"><button className="new-folder-button" onClick={createFolder}>New folder</button><button className="library-new-video" onClick={onNew}>New video <span>v</span></button></div>}
-        {view === 'archive' && <div className="library-heading-actions"><button className="library-new-video" onClick={onNew}>New video <span>v</span></button></div>}
+        {view === 'videos' && <div className="library-heading-actions"><button className="new-folder-button" onClick={createFolder}>New folder</button><button className="library-new-video" onClick={onNew}><Ico n="plus" size={15} />New video</button></div>}
+        {view === 'archive' && <div className="library-heading-actions"><button className="library-new-video" onClick={onNew}><Ico n="plus" size={15} />New video</button></div>}
       </div>
       <div className="library-tabs" role="tablist" aria-label="Library views">
         <button className={view === 'videos' ? 'is-active' : ''} role="tab" aria-selected={view === 'videos'} onClick={() => setView('videos')}>Videos</button>
@@ -140,17 +145,17 @@ export default function Library({ items, archivedItems, total, storageUsed, reco
           <div className="screenshot-empty"><div className="screenshot-art" aria-hidden="true"><span /><i /><i /><b /></div><h2>No screenshots yet</h2><p>Open a saved recording and choose “Capture screenshot” to save a frame here.</p></div>
         )
       ) : filteredItems.length === 0 ? (
-        <div className="loom-library-empty"><div className="archive-art" aria-hidden="true"><i /><span /><b /></div><h2>{view === 'archive' ? 'No archived content' : 'No videos yet'}</h2><p>{view === 'archive' ? "When you archive videos, they'll show up here." : 'Record a video or upload one to see it here.'}</p>{view === 'videos' && <button className="library-new-video" onClick={onNew}>Record a video</button>}</div>
+        <div className="loom-library-empty"><div className="archive-art" aria-hidden="true"><i /><span /><b /></div><h2>{searchQuery.trim() ? 'No matching videos' : view === 'archive' ? 'No archived content' : 'No videos yet'}</h2><p>{searchQuery.trim() ? searchLoading ? 'Searching workspace content…' : 'Try a different title, folder, Space, comment, or transcript phrase.' : view === 'archive' ? "When you archive videos, they'll show up here." : 'Record a video or upload one to see it here.'}</p>{searchQuery.trim() && searchHasMore && <button className="new-folder-button" onClick={onLoadMoreSearch} disabled={searchLoading}>{searchLoading ? 'Loading…' : 'Load more results'}</button>}{view === 'videos' && !searchQuery.trim() && <button className="library-new-video" onClick={onNew}>Record a video</button>}</div>
       ) : (
         <>
           {view === 'videos' && folderNames.length > 0 && <label className="library-folder-filter">Folder <select value={activeFolder} onChange={(event) => setActiveFolder(event.currentTarget.value)}><option value="">All folders</option>{folderNames.map((folder) => <option key={folder} value={folder}>{folder}</option>)}</select></label>}
-          <div className="library-filters"><label className="select-all-videos"><input type="checkbox" disabled /> Select all videos</label><div>{(['type', 'access', 'activity', 'date'] as const).map((key) => <div className="filter-menu-anchor" key={key}><button className={openFilter === key ? 'is-open' : ''} onClick={() => openFilterMenu(key)}>{key === 'type' ? 'Video type' : key === 'date' ? 'Upload date' : key[0].toUpperCase() + key.slice(1)} <span>{openFilter === key ? '⌃' : '⌄'}</span></button>{openFilter === key && <div className="filter-popover"><strong>{key === 'type' ? 'Video type' : key === 'date' ? 'Upload date' : key[0].toUpperCase() + key.slice(1)}</strong>{FILTER_OPTIONS[key].map((option) => <label key={option}><input type={key === 'activity' || key === 'date' ? 'radio' : 'checkbox'} name={`filter-${key}`} checked={draftFilter.includes(option)} onChange={() => key === 'activity' || key === 'date' ? setDraftFilter([option]) : toggleDraft(option)} />{option}</label>)}<footer><button className="filter-clear" onClick={() => { setDraftFilter([]); setFilters((previous) => ({ ...previous, [key]: [] })); setOpenFilter(null); }}>Clear</button><button onClick={() => setOpenFilter(null)}>Cancel</button><button className="filter-save" onClick={() => saveFilter(key)}>Save</button></footer></div>}</div>)}<div className="filter-menu-anchor"><button className={openFilter === 'sort' ? 'is-open' : ''} onClick={() => setOpenFilter(openFilter === 'sort' ? null : 'sort')}>{sortOldest ? 'Oldest to Newest' : 'Newest to Oldest'} <span>{openFilter === 'sort' ? '⌃' : '⌄'}</span></button>{openFilter === 'sort' && <div className="filter-popover sort-popover">{[['Newest to Oldest', false], ['Oldest to Newest', true]].map(([label, oldest]) => <button key={String(label)} className="sort-option" onClick={() => { setSortOldest(Boolean(oldest)); setOpenFilter(null); }}>{label}{sortOldest === oldest && <b>✓</b>}</button>)}</div>}</div></div></div>
+          <div className="library-filters"><label className="select-all-videos"><input type="checkbox" disabled /> Select all videos</label><div>{(['type', 'access', 'activity', 'date'] as const).map((key) => <div className="filter-menu-anchor" key={key}><button className={openFilter === key ? 'is-open' : ''} onClick={() => openFilterMenu(key)}>{key === 'type' ? 'Video type' : key === 'date' ? 'Upload date' : key[0].toUpperCase() + key.slice(1)} <span><Ico n={openFilter === key ? 'chevUp' : 'chevron'} size={14} /></span></button>{openFilter === key && <div className="filter-popover"><strong>{key === 'type' ? 'Video type' : key === 'date' ? 'Upload date' : key[0].toUpperCase() + key.slice(1)}</strong>{FILTER_OPTIONS[key].map((option) => <label key={option}><input type={key === 'activity' || key === 'date' ? 'radio' : 'checkbox'} name={`filter-${key}`} checked={draftFilter.includes(option)} onChange={() => key === 'activity' || key === 'date' ? setDraftFilter([option]) : toggleDraft(option)} />{option}</label>)}<footer><button className="filter-clear" onClick={() => { setDraftFilter([]); setFilters((previous) => ({ ...previous, [key]: [] })); setOpenFilter(null); }}>Clear</button><button onClick={() => setOpenFilter(null)}>Cancel</button><button className="filter-save" onClick={() => saveFilter(key)}>Save</button></footer></div>}</div>)}<div className="filter-menu-anchor"><button className={openFilter === 'sort' ? 'is-open' : ''} onClick={() => setOpenFilter(openFilter === 'sort' ? null : 'sort')}>{sortOldest ? 'Oldest to Newest' : 'Newest to Oldest'} <span><Ico n={openFilter === 'sort' ? 'chevUp' : 'chevron'} size={14} /></span></button>{openFilter === 'sort' && <div className="filter-popover sort-popover">{[['Newest to Oldest', false], ['Oldest to Newest', true]].map(([label, oldest]) => <button key={String(label)} className="sort-option" onClick={() => { setSortOldest(Boolean(oldest)); setOpenFilter(null); }}>{label}{sortOldest === oldest && <b>✓</b>}</button>)}</div>}</div></div></div>
           <ul className="pdf-recording-grid">
             {filteredItems.map((meta) => (
               <li key={meta.id} className="pdf-recording-card">
                 <VideoCardPreview meta={meta} onOpen={() => onOpen(meta.id)} />
                 <h2>{meta.title}</h2>
-                <div className="library-card-byline"><span className="mini-avatar">TJ</span><p><strong>You</strong><span>{fmtDate(meta.createdAt)} <i /> {displaySize(meta.size)}</span></p><span className="library-view-count" title="Viewer insights">◉ {meta.viewCount ?? meta.viewEvents?.length ?? 0}</span><button aria-label={`More actions for ${meta.title}`}>...</button></div>
+                <div className="library-card-byline"><span className="mini-avatar">TJ</span><p><strong>You</strong><span>{fmtDate(meta.createdAt)} <i /> {displaySize(meta.size)}</span></p><span className="library-view-count" title="Viewer insights"><Ico n="eye" size={14} /> {meta.viewCount ?? meta.viewEvents?.length ?? 0}</span><button aria-label={`More actions for ${meta.title}`}><Ico n="more" size={16} /></button></div>
                 <div className="pdf-recording-actions">
                   <button onClick={() => onOpen(meta.id)}>Play</button>
                   {(!meta.isCloud || meta.canManage) && <button onClick={() => { const next = window.prompt('Rename recording', meta.title)?.trim(); if (next) onRename(meta.id, next); }}>Rename</button>}
@@ -159,16 +164,17 @@ export default function Library({ items, archivedItems, total, storageUsed, reco
                   <button onClick={() => onToggleWatchLater(meta.id)}>{watchLaterIds.includes(meta.id) ? 'Remove from Watch later' : 'Watch later'}</button>
                   {view === 'videos' && (!meta.isCloud || meta.canManage) && <label className="folder-assignment">Access <select value={meta.access ?? 'private'} onChange={(event) => onSetAccess(meta.id, event.currentTarget.value as 'private' | 'workspace')} aria-label={`Access for ${meta.title}`}><option value="private">Private</option><option value="workspace">Workspace</option></select></label>}
                   {view === 'videos' && <label className="folder-assignment">Folder <select aria-label={`Move ${meta.title} to a folder`} value={meta.folderName ?? folderByRecording[meta.id] ?? ''} onChange={(event) => moveToFolder(meta.id, event.currentTarget.value)}><option value="">None</option>{folderNames.map((folder) => <option key={folder} value={folder}>{folder}</option>)}</select></label>}
-                  {view === 'videos' && (!meta.isCloud || meta.canManage) && spaces.length > 0 && <label className="folder-assignment">Spaces <select aria-label={`Share ${meta.title} with a Space`} value="" onChange={(event) => { const id = event.currentTarget.value; if (id) onAssignSpaces(meta.id, (meta.spaceIds ?? []).includes(id) ? (meta.spaceIds ?? []).filter((spaceId) => spaceId !== id) : [...(meta.spaceIds ?? []), id]); }}><option value="">{(meta.spaceIds ?? []).length ? `${meta.spaceIds.length} selected` : 'Add to…'}</option>{spaces.map((space) => <option value={space.id} key={space.id}>{(meta.spaceIds ?? []).includes(space.id) ? '✓ ' : ''}{space.name} · {space.privacy}</option>)}</select></label>}
+                  {view === 'videos' && (!meta.isCloud || meta.canManage) && spaces.length > 0 && <label className="folder-assignment">Spaces <select aria-label={`Share ${meta.title} with a Space`} value="" onChange={(event) => { const id = event.currentTarget.value; if (id) onAssignSpaces(meta.id, (meta.spaceIds ?? []).includes(id) ? (meta.spaceIds ?? []).filter((spaceId) => spaceId !== id) : [...(meta.spaceIds ?? []), id]); }}><option value="">{(meta.spaceIds ?? []).length ? `${(meta.spaceIds ?? []).length} selected` : 'Add to…'}</option>{spaces.map((space) => <option value={space.id} key={space.id}>{(meta.spaceIds ?? []).includes(space.id) ? '✓ ' : ''}{space.name} · {space.privacy}</option>)}</select></label>}
                   {!meta.isCloud && <button onClick={() => canUpload ? onUpload(meta) : onUpgrade()} disabled={uploadingId !== null || Boolean(meta.cloudId)}>{uploadingId === meta.id ? 'Uploading…' : meta.cloudId ? 'Uploaded to cloud' : canUpload ? 'Upload to cloud' : 'Cloud upload · Business'}</button>}
                   {(!meta.isCloud || meta.canManage) && <button className="is-danger" onClick={() => onDelete(meta)}>Delete</button>}
                 </div>
               </li>
             ))}
           </ul>
+          {searchQuery.trim() && searchHasMore && <div className="library-search-more"><button className="new-folder-button" onClick={onLoadMoreSearch} disabled={searchLoading}>{searchLoading ? 'Loading…' : 'Load more results'}</button></div>}
         </>
       )}
-      <div className="pdf-storage-note"><span><i className="local-storage-dot" />{Number.isFinite(maxVideos) ? `Starter video quota: ${recordingCount} of ${maxVideos} (meeting recordings excluded)` : `Saved recordings: ${total}`} · Browser storage used: {fmtSize(storageUsed)}</span>{Number.isFinite(maxVideos) && <progress value={Math.min(recordingCount, maxVideos)} max={maxVideos} aria-label="Starter video limit used" />}</div>
+      <div className="pdf-storage-note"><span><i className="local-storage-dot" />{Number.isFinite(maxVideos) ? `Starter plan: ${recordingCount} of ${maxVideos} videos used (meeting recordings don’t count)` : `Saved recordings: ${total}`} · Storage used on this device: {fmtSize(storageUsed)}</span>{Number.isFinite(maxVideos) && <progress value={Math.min(recordingCount, maxVideos)} max={maxVideos} aria-label="Starter video limit used" />}</div>
     </section>
   );
 }

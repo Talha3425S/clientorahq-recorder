@@ -1,8 +1,11 @@
-import type { RecordingComment, RecordingMeta, ScreenshotMeta, TranscriptCue } from './db';
+import type { MeetingRecap, RecordingComment, RecordingMeta, ScreenshotMeta, TranscriptCue } from './db';
+import { makeThumbnail } from './thumbnail';
 
 interface CloudRecording {
   id: string;
   title: string;
+  summary?: string | null;
+  meetingRecap?: MeetingRecap | null;
   mimeType: string;
   source?: 'recorded' | 'meeting' | 'uploaded';
   access?: 'private' | 'workspace';
@@ -38,6 +41,8 @@ export function toCloudMeta(recording: CloudRecording): RecordingMeta {
   return {
     id: recording.id,
     title: recording.title,
+    summary: recording.summary ?? null,
+    meetingRecap: recording.meetingRecap ?? null,
     createdAt: new Date(recording.createdAt).getTime(),
     durationMs: recording.durationMs,
     mimeType: recording.mimeType,
@@ -66,6 +71,38 @@ export async function listCloudRecordings(): Promise<RecordingMeta[]> {
   const response = await fetch('/api/v1/recordings', { credentials: 'same-origin' });
   const data = await readJson<{ recordings: CloudRecording[] }>(response);
   return data.recordings.filter((recording) => recording.status === 'ready').map(toCloudMeta);
+}
+
+export async function searchCloudRecordings(query: string, offset = 0): Promise<{ recordings: RecordingMeta[]; hasMore: boolean; nextOffset: number | null }> {
+  const params = new URLSearchParams({ q: query, offset: String(offset) });
+  const response = await fetch(`/api/v1/recordings/search?${params}`, { credentials: 'same-origin' });
+  const data = await readJson<{ recordings: CloudRecording[]; hasMore: boolean; nextOffset: number | null }>(response);
+  return { ...data, recordings: data.recordings.map(toCloudMeta) };
+}
+
+export async function generateCloudAiAssistance(id: string): Promise<Pick<RecordingMeta, 'title' | 'summary' | 'transcript'>> {
+  const response = await fetch(`/api/v1/recordings/${id}/ai-assist`, {
+    method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}',
+  });
+  const data = await readJson<{ recording: Pick<CloudRecording, 'title' | 'summary' | 'transcript'> }>(response);
+  return data.recording;
+}
+
+export async function generateCloudMeetingRecap(id: string): Promise<MeetingRecap> {
+  const response = await fetch(`/api/v1/recordings/${id}/meeting-recap`, {
+    method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}',
+  });
+  const data = await readJson<{ recap: MeetingRecap }>(response);
+  return data.recap;
+}
+
+export async function transcribeCloudRecordingChunk(id: string, audio: Blob, startMs: number, durationMs: number, signal?: AbortSignal): Promise<TranscriptCue[]> {
+  const params = new URLSearchParams({ startMs: String(startMs), durationMs: String(durationMs) });
+  const response = await fetch(`/api/v1/recordings/${id}/transcribe?${params}`, {
+    method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'audio/webm' }, body: audio, signal,
+  });
+  const data = await readJson<{ cues: TranscriptCue[] }>(response);
+  return data.cues;
 }
 
 export async function uploadRecordingToCloud(meta: RecordingMeta, blob: Blob): Promise<RecordingMeta> {
@@ -124,6 +161,52 @@ export async function uploadRecordingToCloud(meta: RecordingMeta, blob: Blob): P
     if (cloudId) await fetch(`/api/v1/recordings/${cloudId}`, { method: 'DELETE', credentials: 'same-origin' }).catch(() => {});
     throw error;
   }
+}
+
+export async function replaceCloudRecordingVideo(id: string, blob: Blob, durationMs: number, mimeType: string, transcript?: TranscriptCue[], advancedEdit = false): Promise<RecordingMeta> {
+  const thumbnailData = await makeThumbnail(blob);
+  const thumbnailBlob = thumbnailData ? await fetch(thumbnailData).then((response) => response.blob()) : null;
+  const usableThumbnail = thumbnailBlob && thumbnailBlob.size <= 512 * 1024 ? thumbnailBlob : null;
+  const request = {
+    sizeBytes: blob.size,
+    durationMs,
+    mimeType: mimeType || blob.type || 'video/webm',
+    ...(transcript !== undefined && { transcript }),
+    ...(advancedEdit && { advancedEdit: true }),
+    ...(usableThumbnail && { thumbnailSizeBytes: usableThumbnail.size }),
+  };
+  const prepareResponse = await fetch(`/api/v1/recordings/${id}/replace`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  const prepared = await readJson<{
+    upload: { method: 'PUT'; url: string; headers: Record<string, string> };
+    thumbnailUpload: { method: 'PUT'; url: string; headers: Record<string, string> } | null;
+  }>(prepareResponse);
+  const uploadResponse = await fetch(prepared.upload.url, {
+    method: prepared.upload.method,
+    headers: prepared.upload.headers,
+    body: blob,
+  });
+  if (!uploadResponse.ok) throw new Error(`Cloud storage rejected the trimmed video (${uploadResponse.status}).`);
+  if (usableThumbnail && prepared.thumbnailUpload) {
+    const thumbnailResponse = await fetch(prepared.thumbnailUpload.url, {
+      method: prepared.thumbnailUpload.method,
+      headers: prepared.thumbnailUpload.headers,
+      body: usableThumbnail,
+    });
+    if (!thumbnailResponse.ok) throw new Error(`Cloud storage rejected the updated thumbnail (${thumbnailResponse.status}).`);
+  }
+  const completeResponse = await fetch(`/api/v1/recordings/${id}/replace/complete`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  await readJson(completeResponse);
+  return (await getCloudPlaybackUrl(id)).recording;
 }
 
 export async function renameCloudRecording(id: string, title: string): Promise<void> {

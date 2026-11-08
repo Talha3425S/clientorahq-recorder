@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getPublicShare } from '../lib/recordingsApi';
+import { Ico } from './Icons';
 
 function formatVttTime(milliseconds: number) {
   const total = Math.max(0, Math.floor(milliseconds));
@@ -26,13 +27,13 @@ export default function PublicSharePage({ token }: { token: string }) {
     void getPublicShare(token).then((result) => {
       if (!cancelled) setShare(result);
     }).catch((cause: unknown) => {
-      if (!cancelled) setError(cause instanceof Error ? cause.message : 'This share link could not be opened.');
+      if (!cancelled) setError(cause instanceof Error ? cause.message : 'This link isn’t working. It may have expired, or the owner may have turned sharing off.');
     });
     return () => { cancelled = true; };
   }, [token]);
 
   return <main className={`public-share-page${embed ? ' is-embed' : ''}`}>
-    {!embed && <header className="public-share-brand"><span>✳</span><strong>ClientoraHQ</strong></header>}
+    {!embed && <header className="public-share-brand"><span><Ico n="logo" size={19} /></span><strong>ClientoraHQ</strong></header>}
     {share ? <article className="public-share-card">
       <video controls playsInline preload="metadata" src={share.url} aria-label={share.recording.title}>
         {captions && <track kind="captions" srcLang="en" label="Captions" src={captions} />}

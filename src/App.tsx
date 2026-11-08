@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import * as I from './components/Icons';
 import Library from './components/Library';
 import RecorderUI from './components/RecorderUI';
@@ -6,7 +6,7 @@ import VideoPage from './components/VideoPage';
 import PublicSharePage from './components/PublicSharePage';
 import { useRecorder } from './hooks/useRecorder';
 import { deleteRecording, deleteScreenshot, getScreenshotBlob, getVideo, listRecordings, listScreenshots, markRecordingViewed, renameRecording, saveRecording, saveScreenshot, setRecordingAccess, setRecordingArchived, setRecordingCloudId, setRecordingFolder, setRecordingSpaces, type RecordingMeta, type ScreenshotMeta } from './lib/db';
-import { addCloudTranscriptCue, createCloudComment, createCloudFolder, createCloudShareLink, createCloudSpace, deleteCloudRecording, deleteCloudScreenshot, deleteCloudTranscriptCue, downloadCloudRecording, getCloudPlaybackUrl, getCloudWorkspaceSettings, listCloudFolders, listCloudRecordings, listCloudScreenshots, listCloudSpaces, listCloudWatchLater, renameCloudRecording, revokeCloudShareLink, saveCloudScreenshot, setCloudReaction, setCloudRecordingFolder, setCloudRecordingSpaces, setCloudWatchLater, shareCloudRecordingToSlack, transferCloudRecordingOwnership, updateCloudRecording, uploadRecordingToCloud, type CloudFolder } from './lib/recordingsApi';
+import { addCloudTranscriptCue, createCloudComment, createCloudFolder, createCloudShareLink, createCloudSpace, deleteCloudRecording, deleteCloudScreenshot, deleteCloudTranscriptCue, downloadCloudRecording, getCloudPlaybackUrl, getCloudWorkspaceSettings, listCloudFolders, listCloudRecordings, listCloudScreenshots, listCloudSpaces, listCloudWatchLater, renameCloudRecording, replaceCloudRecordingVideo, revokeCloudShareLink, saveCloudScreenshot, searchCloudRecordings, setCloudReaction, setCloudRecordingFolder, setCloudRecordingSpaces, setCloudWatchLater, shareCloudRecordingToSlack, transferCloudRecordingOwnership, updateCloudRecording, uploadRecordingToCloud, type CloudFolder } from './lib/recordingsApi';
 import { downloadRecording } from './lib/download';
 import { checkSupport } from './lib/support';
 import { AdminOverview, AdminSpaces, AdminUsers, CreateSpaceModal, InsightsPage, MeetingsPage, PlaylistsPage, RecentPage, SettingsPage, SpacePage, UpgradeModal, WatchLaterPage, WorkspaceSettings, type WorkspaceSpace } from './components/WorkspacePages';
@@ -27,44 +27,51 @@ function readWatchLaterIds(): string[] {
   } catch { return []; }
 }
 
+const Ico = I.Ico;
+
 function AppHeader({ page, count, search, spaces, remote = false, canSearch, onSearch, onNavigate, onSelectSpace, onRecord, onCreateSpace, onUpgrade, onLogout }: { page: Page; count: number; search: string; spaces: WorkspaceSpace[]; remote?: boolean; canSearch: boolean; onSearch: (value: string) => void; onNavigate: (page: Page) => void; onSelectSpace: (id: string | null) => void; onRecord: () => void; onCreateSpace: () => void; onUpgrade: () => void; onLogout: () => void }) {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const shortcut = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘K' : 'Ctrl K';
+  const item = (id: Page, icon: string, label: string, extra?: ReactNode) => (
+    <button className={page === id ? 'is-active' : ''} aria-current={page === id ? 'page' : undefined} onClick={() => onNavigate(id)}><Ico n={icon} />{label}{extra}</button>
+  );
   return (
     <>
       <header className="loom-topbar">
-        <div className="loom-top-left"><button className="top-icon collapse-icon" aria-label="Collapse sidebar">◧</button><button className="top-icon apps-icon" aria-label="Apps">▦</button><div className="loom-logo"><span>✳</span><strong>Clientora<span>HQ</span></strong></div></div>
-        <label className={canSearch ? "global-search" : "global-search is-locked"}><span>{"\u2315"}</span><input value={search} onChange={(event) => onSearch(event.currentTarget.value)} onClick={() => { if (!canSearch) onUpgrade(); }} readOnly={!canSearch} title={canSearch ? undefined : "Search is included with Business."} placeholder={canSearch ? "Search for people, tags, folders, Spaces, Playlists, and videos" : "Search - Business"} aria-label={canSearch ? "Search" : "Search (Business plan required)"} /></label>
-        <div className="loom-top-actions"><button className="upgrade-button" onClick={onUpgrade}>♢ Upgrade</button><button className="top-icon" aria-label="Help">?</button><button className="top-icon notification-button" aria-label="Notifications">♧<i>2</i></button><div className="account-menu-anchor"><button className="user-avatar" aria-label="Account menu" title="Account menu" aria-haspopup="menu" aria-expanded={profileMenuOpen} onClick={() => setProfileMenuOpen((open) => !open)}>TJ</button>{profileMenuOpen && <div className="profile-menu" role="menu"><strong>Signed in</strong><button role="menuitem" onClick={() => { setProfileMenuOpen(false); onLogout(); }}>Sign out</button></div>}</div></div>
+        <div className="loom-top-left"><button className="top-icon collapse-icon" aria-label="Collapse sidebar"><Ico n="panel" /></button><button className="top-icon apps-icon" aria-label="Apps"><Ico n="grid" /></button><div className="loom-logo"><span><Ico n="logo" size={19} /></span><strong>Clientora<span>HQ</span></strong></div></div>
+        <label className={canSearch ? 'global-search' : 'global-search is-locked'}><Ico n="search" size={17} /><input value={search} onChange={(event) => onSearch(event.currentTarget.value)} onClick={() => { if (!canSearch) onUpgrade(); }} readOnly={!canSearch} title={canSearch ? undefined : 'Upgrade to Business to search your workspace.'} placeholder={canSearch ? 'Search videos, folders and transcripts' : 'Search is available on Business'} aria-label={canSearch ? 'Search workspace content' : 'Search (Business plan required)'} />{canSearch && <kbd>{shortcut}</kbd>}</label>
+        <div className="loom-top-actions"><button className="upgrade-button" onClick={onUpgrade}><Ico n="spark" size={15} />Upgrade</button><button className="top-icon" aria-label="Help"><Ico n="help" /></button><button className="top-icon notification-button" aria-label="Notifications"><Ico n="bell" /><i>2</i></button><div className="account-menu-anchor"><button className="user-avatar" aria-label="Account menu" title="Account menu" aria-haspopup="menu" aria-expanded={profileMenuOpen} onClick={() => setProfileMenuOpen((open) => !open)}>TJ</button>{profileMenuOpen && <div className="profile-menu" role="menu"><strong>Account</strong><button role="menuitem" onClick={() => { setProfileMenuOpen(false); onLogout(); }}>Sign out</button></div>}</div></div>
       </header>
       <aside className="loom-sidebar">
         <div className="loom-sidebar-scroll">
-        <div className="workspace-card"><strong title="ClientoraHQ workspace">ClientoraHQ workspace <span>⌄</span></strong><div><span className="default-chip">Default</span><span>ⓘ</span><i /> <span>1 member</span></div><button>♙ &nbsp; Invite teammates</button></div>
+        <div className="workspace-card"><strong title="ClientoraHQ workspace">ClientoraHQ <span><Ico n="chevron" size={16} /></span></strong><div><span className="default-chip">Default</span><i /><span>1 member</span></div><button onClick={() => onNavigate('admin-users')}><Ico n="userPlus" size={16} />Invite teammates</button></div>
         <nav className="workspace-nav" aria-label="Workspace navigation">
-          <button className={page === 'for-you' ? 'is-active' : ''} onClick={() => onNavigate('for-you')}><span>◎</span>For you</button>
-          <button className={page === 'library' ? 'is-active' : ''} onClick={() => onNavigate('library')}><span>▣</span>Library{count > 0 && <small>{count}</small>}</button>
-          <button className={page === 'meetings' ? 'is-active' : ''} onClick={() => onNavigate('meetings')}><span>▦</span>Meetings</button>
-          <button className={page === 'playlists' ? 'is-active' : ''} onClick={() => onNavigate('playlists')}><span>▣</span>Playlists</button><button className={page === 'watch-later' ? 'is-active' : ''} onClick={() => onNavigate('watch-later')}><span>◷</span>Watch later</button>
-          <button className={page === 'recent' ? 'is-active' : ''} onClick={() => onNavigate('recent')}><span>◷</span>Recent</button>
-          <button className={page === 'settings' ? 'is-active' : ''} onClick={() => onNavigate('settings')}><span>⚙</span>Personal settings</button>
+          {item('for-you', 'compass', 'For you')}
+          {item('library', 'play', 'Library', count > 0 ? <small>{count}</small> : null)}
+          {item('meetings', 'calendar', 'Meetings')}
+          {item('playlists', 'list', 'Playlists')}
+          {item('watch-later', 'clock', 'Watch later')}
+          {item('recent', 'history', 'Recent')}
+          {item('settings', 'sliders', 'Personal settings')}
         </nav>
         <div className="sidebar-divider" />
         <p className="sidebar-section-label">Admin tools</p>
         <nav className="workspace-nav admin-nav" aria-label="Admin tools">
-          <button className={page === 'admin-overview' ? 'is-active' : ''} onClick={() => onNavigate('admin-overview')}><span>◎</span>Overview</button>
-          <button className={page === 'admin-users' || page === 'admin-spaces' ? 'is-active' : ''} onClick={() => onNavigate('admin-users')}><span>▣</span>Manage</button>
+          {item('admin-overview', 'grid', 'Overview')}
+          <button className={page === 'admin-users' || page === 'admin-spaces' ? 'is-active' : ''} onClick={() => onNavigate('admin-users')}><Ico n="users" />Manage</button>
           <button className={`admin-subnav${page === 'admin-users' ? ' is-active' : ''}`} onClick={() => onNavigate('admin-users')}>Users</button>
           <button className={`admin-subnav${page === 'admin-spaces' ? ' is-active' : ''}`} onClick={() => onNavigate('admin-spaces')}>Spaces</button>
-          <button className={page === 'admin-insights' ? 'is-active' : ''} onClick={() => onNavigate('admin-insights')}><span>⌁</span>Insights</button>
-          <button className={page === 'workspace-settings' ? 'is-active' : ''} onClick={() => onNavigate('workspace-settings')}><span>⚙</span>Workspace</button>
-          <button onClick={() => onNavigate('admin-billing')}><span>▤</span>Billing <small>↗</small></button>
-          <button onClick={() => onNavigate('admin-atlassian')}><span>▧</span>Atlassian Admin <small>↗</small></button>
+          {item('admin-insights', 'chart', 'Insights')}
+          {item('workspace-settings', 'building', 'Workspace')}
+          {item('admin-billing', 'card', 'Billing')}
+          {item('admin-atlassian', 'plug', 'Integrations')}
         </nav>
         <div className="sidebar-divider spaces-divider" />
-        <div className="sidebar-spaces-heading"><span>Spaces</span><button aria-label="Create a space" title="Create a space" onClick={onCreateSpace}>+</button></div>
-        <nav className="workspace-nav spaces-nav" aria-label="Spaces"><button onClick={() => onNavigate('admin-spaces')}><span>♧</span>View all Spaces</button>{spaces.map((space) => <button key={space.id} className={page === 'space' ? 'is-active' : ''} onClick={() => { onSelectSpace(space.id); onNavigate('space'); }}><b className="space-avatar">{space.name.slice(0, 1).toUpperCase()}</b>{space.name}</button>)}<button onClick={() => { onSelectSpace(null); onNavigate('library'); }}><b className="space-avatar">A</b>All ClientoraHQ workspace</button></nav>
+        <div className="sidebar-spaces-heading"><span>Spaces</span><button aria-label="Create a space" title="Create a space" onClick={onCreateSpace}><Ico n="plus" size={16} /></button></div>
+        <nav className="workspace-nav spaces-nav" aria-label="Spaces"><button onClick={() => onNavigate('admin-spaces')}><Ico n="layers" />Browse all Spaces</button>{spaces.map((space) => <button key={space.id} className={page === 'space' ? 'is-active' : ''} onClick={() => { onSelectSpace(space.id); onNavigate('space'); }}><b className="space-avatar">{space.name.slice(0, 1).toUpperCase()}</b>{space.name}</button>)}<button onClick={() => { onSelectSpace(null); onNavigate('library'); }}><b className="space-avatar">A</b>All workspace videos</button></nav>
         <div className="sidebar-local-note"><i /> {remote ? 'Workspace synced' : 'Saved on this device'}</div>
         </div>
-        <button className="sidebar-record-button" onClick={onRecord}><span>✳</span> Record a video</button>
+        <button className="sidebar-record-button" onClick={onRecord}><Ico n="video" size={20} /> New recording</button>
       </aside>
     </>
   );
@@ -75,6 +82,11 @@ export default function App() {
   const [items, setItems] = useState<RecordingMeta[]>([]);
   const [screenshots, setScreenshots] = useState<ScreenshotMeta[]>([]);
   const [cloudItems, setCloudItems] = useState<RecordingMeta[]>([]);
+  const [searchResults, setSearchResults] = useState<RecordingMeta[]>([]);
+  const [searchResultsQuery, setSearchResultsQuery] = useState('');
+  const [searchHasMore, setSearchHasMore] = useState(false);
+  const [searchNextOffset, setSearchNextOffset] = useState<number | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
   const [cloudPlaybackUrl, setCloudPlaybackUrl] = useState<string | null>(null);
   const [uploadingId, setUploadingId] = useState<string | null>(null);
   const [page, setPage] = useState<Page>('for-you');
@@ -154,6 +166,25 @@ export default function App() {
     });
     return () => { cancelled = true; };
   }, [authStatus, localDemo]);
+
+  useEffect(() => {
+    const query = search.trim();
+    if (!planCapabilities.canSearch || authStatus !== 'authenticated' || localDemo || query.length < 2 || page === 'playlists') return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setSearchLoading(true);
+      void searchCloudRecordings(query).then((result) => {
+        if (cancelled) return;
+        setSearchResults(result.recordings);
+        setSearchResultsQuery(query);
+        setSearchHasMore(result.hasMore);
+        setSearchNextOffset(result.nextOffset);
+      }).catch((error) => {
+        if (!cancelled) setNotice(error instanceof Error ? error.message : 'Workspace search could not be completed.');
+      }).finally(() => { if (!cancelled) setSearchLoading(false); });
+    }, 250);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [authStatus, localDemo, page, planCapabilities.canSearch, search]);
 
   useEffect(() => {
     if (authStatus !== 'authenticated' || localDemo) return;
@@ -241,13 +272,47 @@ export default function App() {
   const libraryItems = [
     ...items.map((item) => {
       const cloud = item.cloudId ? cloudById.get(item.cloudId) : undefined;
-      return cloud ? { ...item, title: cloud.title, access: cloud.access, archived: cloud.archived, viewCount: cloud.viewCount, canManage: cloud.canManage, comments: cloud.comments, reactions: cloud.reactions, myReactions: cloud.myReactions, reactionCount: cloud.reactionCount, reacted: cloud.reacted, transcript: cloud.transcript, spaceIds: cloud.spaceIds, folderId: cloud.folderId, folderName: cloud.folderName, isCloud: false } : item;
+      return cloud ? { ...item, title: cloud.title, summary: cloud.summary, meetingRecap: cloud.meetingRecap, access: cloud.access, archived: cloud.archived, viewCount: cloud.viewCount, canManage: cloud.canManage, comments: cloud.comments, reactions: cloud.reactions, myReactions: cloud.myReactions, reactionCount: cloud.reactionCount, reacted: cloud.reacted, transcript: cloud.transcript, spaceIds: cloud.spaceIds, folderId: cloud.folderId, folderName: cloud.folderName, isCloud: false } : item;
     }),
     ...cloudItems.filter((meta) => !localCloudIds.has(meta.id)),
   ];
   const current = libraryItems.find((meta) => meta.id === openId) ?? null;
   const selectedSpace = spaces.find((space) => space.id === selectedSpaceId) ?? null;
-  const filteredItems = planCapabilities.canSearch && search.trim() ? libraryItems.filter((item) => item.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase())) : libraryItems;
+  const searchTerm = search.trim().toLocaleLowerCase();
+  const serverSearchActive = authStatus === 'authenticated' && !localDemo && planCapabilities.canSearch && search.trim().length >= 2 && page !== 'playlists';
+  const loadMoreSearchResults = async () => {
+    if (searchLoading || !searchHasMore || searchNextOffset === null) return;
+    setSearchLoading(true);
+    try {
+      const result = await searchCloudRecordings(search.trim(), searchNextOffset);
+      setSearchResults((previous) => [...previous, ...result.recordings.filter((item) => !previous.some((existing) => existing.id === item.id))]);
+      setSearchHasMore(result.hasMore);
+      setSearchNextOffset(result.nextOffset);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Could not load more search results.');
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+  const filteredItems = serverSearchActive
+    ? searchResultsQuery === search.trim() ? searchResults : []
+    : planCapabilities.canSearch && searchTerm
+    ? libraryItems.filter((item) => {
+      const folderName = item.folderName ?? workspaceFolders.find((folder) => folder.id === item.folderId)?.name ?? '';
+      const linkedSpaceNames = spaces
+        .filter((space) => item.spaceIds?.includes(space.id))
+        .map((space) => space.name);
+      const searchableText = [
+        item.title,
+        item.source === 'meeting' ? 'meeting recording' : 'video',
+        folderName,
+        ...linkedSpaceNames,
+        ...(item.comments ?? []).map((comment) => comment.text),
+        ...(item.transcript ?? []).map((cue) => cue.text),
+      ].join('\n').toLocaleLowerCase();
+      return searchableText.includes(searchTerm);
+    })
+    : libraryItems;
   const activeItems = filteredItems.filter((item) => !item.archived);
   const availableRecordings = libraryItems.filter((item) => !item.archived);
   const watchLaterItems = availableRecordings.filter((item) => watchLaterIds.includes(item.id));
@@ -293,12 +358,18 @@ export default function App() {
     }
     if (rec.phase !== 'idle') rec.cancel();
     setOpenId(null);
+    if (next === 'playlists') setSearchLoading(false);
     setPage(next);
   };
 
   const updateSearch = (value: string) => {
     setSearch(value);
-    if (value.trim()) { setOpenId(null); setPage('library'); }
+    setSearchResults([]);
+    setSearchResultsQuery('');
+    setSearchHasMore(false);
+    setSearchNextOffset(null);
+    setSearchLoading(false);
+    if (value.trim()) { setOpenId(null); setPage((current) => current === 'playlists' ? 'playlists' : 'library'); }
   };
 
   const toggleArchive = async (meta: RecordingMeta) => {
@@ -640,19 +711,19 @@ export default function App() {
 
   const shareToken = window.location.pathname.match(/^\/share\/([^/]+)\/?$/)?.[1];
   if (shareToken) return <PublicSharePage token={shareToken} />;
-  if (authStatus === 'checking') return <div className="pdf-preparing"><span className="pdf-spinner" />Checking your session…</div>;
-  if (authStatus === 'error') return <main className="pdf-error-page"><article className="pdf-error-card"><h1>Can’t connect to your account</h1><p>Make sure the authentication server is running, then try again.</p><button onClick={() => window.location.reload()}>Try again</button><p><a href="/login">Go to sign in</a></p>{import.meta.env.DEV && <div className="local-demo-entry"><p>For UI work, open the device-only Starter demo. This bypasses sign-in in this development build; videos stay in this browser.</p><button onClick={() => { if (isAuthPage) window.history.replaceState({}, '', '/'); setLocalDemo(true); setAuthStatus('authenticated'); }}>Open local Starter demo</button></div>}</article></main>;
+  if (authStatus === 'checking') return <div className="pdf-preparing"><span className="pdf-spinner" />Signing you in…</div>;
+  if (authStatus === 'error') return <main className="pdf-error-page"><article className="pdf-error-card"><h1>We can’t reach your account</h1><p>Check your internet connection and try again. If the problem continues, the sign-in service may be temporarily unavailable.</p><button onClick={() => window.location.reload()}>Try again</button><p><a href="/login">Go to sign in</a></p>{import.meta.env.DEV && <div className="local-demo-entry"><p>For UI work, open the device-only Starter demo. This bypasses sign-in in this development build; videos stay in this browser.</p><button onClick={() => { if (isAuthPage) window.history.replaceState({}, '', '/'); setLocalDemo(true); setAuthStatus('authenticated'); }}>Open local Starter demo</button></div>}</article></main>;
   if (isAuthPage) return <AuthPage initialFlow={authFlow} />;
 
   if (support.ok === false) {
     return (
-      <div className="min-h-screen bg-[#f3f7fa]">
+      <div className="min-h-screen bg-wash">
         <AppHeader page="library" count={activeItems.length} search={search} spaces={spaces} canSearch={planCapabilities.canSearch} remote={authStatus === 'authenticated' && !localDemo} onSearch={updateSearch} onNavigate={navigate} onSelectSpace={setSelectedSpaceId} onRecord={() => startRecording()} onCreateSpace={() => setShowCreateSpace(true)} onUpgrade={() => setShowUpgrade(true)} onLogout={() => void logOut()} />
         <main className="pdf-error-page">
           <article className="pdf-error-card">
             <span className="pdf-error-icon is-info">i</span>
-            <h1>Open on a computer</h1>
-            <p>{support.reason} Use a current desktop version of Chrome, Edge, or Firefox.</p>
+            <h1>Please use a desktop browser</h1>
+            <p>{support.reason} For the best experience, open ClientoraHQ in the latest desktop version of Chrome, Edge, or Firefox.</p>
             <button onClick={() => void copyPageLink()}>{message === 'Page link copied.' ? 'Link copied' : 'Copy page link'}</button>
           </article>
         </main>
@@ -686,20 +757,44 @@ export default function App() {
             canTrim={planCapabilities.canTrim}
             canDownload={planCapabilities.canDownload}
             canEmbed={planCapabilities.canEmbed}
+            canGenerateAi={planCapabilities.hasAi && authStatus === 'authenticated' && !localDemo && current.canManage !== false && Boolean(current.isCloud || current.cloudId)}
             onUpgrade={() => setShowUpgrade(true)}
             isWatchLater={watchLaterIds.includes(current.id)}
             onToggleWatchLater={() => toggleWatchLater(current.id)}
             onInteractionUpdated={(updated) => {
               setItems((previous) => previous.map((item) => item.id === updated.id ? updated : item));
               const cloudId = current.isCloud ? current.id : current.cloudId;
-              if (cloudId) setCloudItems((previous) => previous.map((item) => item.id === cloudId ? { ...item, comments: updated.comments, reactions: updated.reactions, myReactions: updated.myReactions, reactionCount: updated.reactionCount, reacted: updated.reacted, transcript: updated.transcript } : item));
+              if (cloudId) setCloudItems((previous) => previous.map((item) => item.id === cloudId ? { ...item, title: updated.title, summary: updated.summary, meetingRecap: updated.meetingRecap, comments: updated.comments, reactions: updated.reactions, myReactions: updated.myReactions, reactionCount: updated.reactionCount, reacted: updated.reacted, transcript: updated.transcript } : item));
             }}
             onCloudComment={async (text) => current.isCloud || current.cloudId ? createCloudComment(current.isCloud ? current.id : current.cloudId!, text) : null}
             onCloudReaction={async (emoji, active) => current.isCloud || current.cloudId ? setCloudReaction(current.isCloud ? current.id : current.cloudId!, emoji, active) : null}
             onCloudAddTranscript={async (startMs, text) => current.isCloud || current.cloudId ? addCloudTranscriptCue(current.isCloud ? current.id : current.cloudId!, startMs, text) : null}
             onCloudDeleteTranscript={async (cueId) => { if (current.isCloud || current.cloudId) await deleteCloudTranscriptCue(current.isCloud ? current.id : current.cloudId!, cueId); }}
             onCaptureScreenshot={(blob, preview) => void captureScreenshot(current, blob, preview)}
-            onTrimmed={(updated) => setItems((prev) => prev.map((item) => item.id === updated.id ? updated : item))}
+            onTrimmed={async (updated) => {
+              if (updated.isCloud) {
+                setCloudItems((previous) => previous.map((item) => item.id === updated.id ? updated : item));
+                try {
+                  const playback = await getCloudPlaybackUrl(updated.id);
+                  setCloudPlaybackUrl(playback.url);
+                  setCloudItems((previous) => previous.map((item) => item.id === updated.id ? playback.recording : item));
+                } catch (error) {
+                  setMessage(error instanceof Error ? `Trimmed video saved, but the updated player link could not be loaded: ${error.message}` : 'Trimmed video saved, but the updated player link could not be loaded.');
+                }
+                return;
+              }
+              setItems((previous) => previous.map((item) => item.id === updated.id ? updated : item));
+              if (updated.cloudId && authStatus === 'authenticated' && !localDemo) {
+                try {
+                  const blob = await getVideo(updated.id);
+                  if (!blob) throw new Error('The saved local copy is missing.');
+                  const cloudRecording = await replaceCloudRecordingVideo(updated.cloudId, blob, updated.durationMs, updated.mimeType, updated.transcript);
+                  setCloudItems((previous) => previous.map((item) => item.id === updated.cloudId ? cloudRecording : item));
+                } catch (error) {
+                  setMessage(error instanceof Error ? `Trimmed video is saved on this device, but cloud sync failed: ${error.message}` : 'Trimmed video is saved on this device, but cloud sync failed.');
+                }
+              }
+            }}
           />
         ) : visiblePage === 'library' ? (
           <Library
@@ -734,11 +829,15 @@ export default function App() {
               setWorkspaceFolders((previous) => [...previous, folder]);
             } : undefined}
             onSetFolder={authStatus === 'authenticated' && !localDemo ? (id, name) => void assignRecordingFolder(id, name) : undefined}
+            searchQuery={serverSearchActive ? search : ''}
+            searchLoading={searchLoading}
+            searchHasMore={serverSearchActive && searchHasMore}
+            onLoadMoreSearch={loadMoreSearchResults}
           />
         ) : visiblePage === 'meetings' ? (
           <MeetingsPage remote={authStatus === 'authenticated' && !localDemo} onRecord={(title) => startRecording('meeting', title)} />
         ) : visiblePage === 'playlists' ? (
-          <PlaylistsPage recordings={availableRecordings} onOpenRecording={openRecording} onOpenLibrary={() => navigate('library')} />
+          <PlaylistsPage recordings={availableRecordings} searchQuery={planCapabilities.canSearch ? search : ''} onOpenRecording={openRecording} onOpenLibrary={() => navigate('library')} />
         ) : visiblePage === 'watch-later' ? (
           <WatchLaterPage items={watchLaterItems} onOpen={openRecording} onRemove={toggleWatchLater} />
         ) : visiblePage === 'recent' ? (
@@ -758,17 +857,18 @@ export default function App() {
         ) : visiblePage === 'workspace-settings' ? (
           <WorkspaceSettings items={items} remote={authStatus === 'authenticated' && !localDemo} plan={plan} onUpgrade={() => setShowUpgrade(true)} onConnect={() => setNotice('Calendar connection is not configured in this local workspace.')} />
         ) : visiblePage === 'admin-billing' || visiblePage === 'admin-atlassian' ? (
-          <section className="admin-placeholder"><h1>{visiblePage === 'admin-billing' ? 'Billing' : 'Atlassian Admin'}</h1><p>This workspace is running locally and is not connected to an account service.</p></section>
+          <section className="admin-placeholder"><h1>{visiblePage === 'admin-billing' ? 'Billing' : 'Integrations'}</h1><p>This section becomes available once your workspace is connected to an account service.</p></section>
         ) : visiblePage === 'for-you' ? (
           <section className="loom-home-empty">
-            <div className="bulb-art" aria-hidden="true"><i className="bulb-rays ray-one"/><i className="bulb-rays ray-two"/><i className="bulb-rays ray-three"/><span className="bulb-glass"/><span className="bulb-neck"/><i className="bulb-filament filament-left"/><i className="bulb-filament filament-right"/></div>
-            <h1>Record a video</h1>
-            <p>Stay aligned without another meeting — share an async<br className="desktop-break" /> video with your team.</p>
-            <div className="home-actions"><button className="home-record-button" onClick={() => startRecording()}><span>✳</span> Record a video</button><label className="home-upload-button">{planCapabilities.canUpload ? 'Upload a video' : 'Upload a video · Business'}<input type="file" accept="video/*" onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void uploadVideo(file); event.currentTarget.value = ''; }} /></label></div>
-            <span className="home-local-hint">Your videos stay private on this device.</span>
+            <div className="home-hero-icon" aria-hidden="true"><Ico n="video" size={38} /></div>
+            <span className="home-eyebrow">Welcome to ClientoraHQ</span>
+            <h1>Say it with a video, not another meeting</h1>
+            <p>Record your screen and camera in seconds, then share a link your team can watch whenever it suits them.</p>
+            <div className="home-actions"><button className="home-record-button" onClick={() => startRecording()}><Ico n="video" size={19} /> Start recording</button><label className="home-upload-button"><Ico n="upload" size={17} /> Upload a video{!planCapabilities.canUpload && <em>Business</em>}<input type="file" accept="video/*" onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void uploadVideo(file); event.currentTarget.value = ''; }} /></label></div>
+            <span className="home-local-hint">{authStatus === 'authenticated' && !localDemo ? 'Your recordings are backed up to your workspace library.' : 'Your recordings are saved privately on this device.'}</span>
           </section>
         ) : (
-          <div className="pdf-preparing"><span className="pdf-spinner" />Preparing recording devices…</div>
+          <div className="pdf-preparing"><span className="pdf-spinner" />Getting your camera and microphone ready…</div>
         )}
       </main>
       <RecorderUI r={rec} libraryCount={items.length} />

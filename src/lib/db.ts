@@ -28,6 +28,15 @@ export interface RecordingMeta {
   myReactions?: string[];
   comments?: RecordingComment[];
   transcript?: TranscriptCue[];
+  summary?: string | null;
+  meetingRecap?: MeetingRecap | null;
+}
+
+export interface MeetingRecap {
+  summary: string;
+  keyPoints: string[];
+  decisions: string[];
+  actionItems: { task: string; owner: string | null; dueDate: string | null }[];
 }
 
 export interface RecordingComment {
@@ -284,7 +293,7 @@ export async function deleteTranscriptCue(id: string, cueId: string) {
   return updated;
 }
 
-export async function replaceRecordingVideo(id: string, blob: Blob, durationMs: number, mimeType: string) {
+export async function replaceRecordingVideo(id: string, blob: Blob, durationMs: number, mimeType: string, transcript?: TranscriptCue[]) {
   const db = await getDb();
   const existing = await db.get('meta', id);
   if (!existing) throw new Error('This recording is no longer in the library.');
@@ -294,6 +303,7 @@ export async function replaceRecordingVideo(id: string, blob: Blob, durationMs: 
     mimeType,
     size: blob.size,
     thumb: await makeThumbnail(blob),
+    ...(transcript !== undefined && { transcript, summary: null, meetingRecap: null }),
   };
   const tx = db.transaction(['meta', 'videos'], 'readwrite');
   await Promise.all([tx.objectStore('meta').put(updated), tx.objectStore('videos').put(blob, id), tx.done]);

@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { addRecordingComment, addTranscriptCue, deleteTranscriptCue, getVideo, replaceRecordingVideo, setRecordingEmojiReaction, type RecordingComment, type RecordingMeta } from '../lib/db';
 import { fmtDate, fmtSize, fmtTime } from '../lib/format';
-import { trimVideo } from '../lib/media';
+import { stitchVideoSegments, trimVideo } from '../lib/media';
 import { canRecordMp4 } from '../lib/support';
+import { generateCloudAiAssistance, generateCloudMeetingRecap, replaceCloudRecordingVideo, transcribeCloudRecordingChunk } from '../lib/recordingsApi';
+import { transcribeMediaAudio } from '../lib/transcription';
 
 interface Props {
   meta: RecordingMeta;
   onBack: () => void;
   onRename: (title: string) => void;
   onDelete: () => void;
-  onTrimmed: (meta: RecordingMeta) => void;
+  onTrimmed: (meta: RecordingMeta) => void | Promise<void>;
   canTrim: boolean;
   canDownload: boolean;
   canEmbed: boolean;
@@ -21,6 +23,7 @@ interface Props {
   onCloudReaction?: (emoji: string, active: boolean) => Promise<Pick<RecordingMeta, 'reactions' | 'myReactions' | 'reactionCount' | 'reacted'> | null>;
   onCloudAddTranscript?: (startMs: number, text: string) => Promise<NonNullable<RecordingMeta['transcript']>[number] | null>;
   onCloudDeleteTranscript?: (cueId: string) => Promise<void>;
+  canGenerateAi: boolean;
   onCaptureScreenshot: (blob: Blob, preview: string) => void;
   videoSrc?: string;
   onDownload?: () => void;
@@ -51,7 +54,19 @@ function transcriptAsVtt(transcript: NonNullable<RecordingMeta['transcript']>) {
   })].join('\n');
 }
 
-export default function VideoPage({ meta, onBack, onRename, onDelete, onTrimmed, canTrim, canDownload, canEmbed, onUpgrade, isWatchLater, onToggleWatchLater, onInteractionUpdated, onCloudComment, onCloudReaction, onCloudAddTranscript, onCloudDeleteTranscript, onCaptureScreenshot, videoSrc, onDownload, canShare, cloudBackupBusy, onRetryCloudBackup, onShare, onRevokeShare, onTransferOwnership, onShareSlack }: Props) {
+function remapTranscriptForClips(transcript: NonNullable<RecordingMeta['transcript']>, clips: { startMs: number; endMs: number }[]) {
+  let offset = 0;
+  const remapped = [];
+  for (const clip of [...clips].sort((a, b) => a.startMs - b.startMs)) {
+    for (const cue of transcript) {
+      if (cue.startMs >= clip.startMs && cue.startMs < clip.endMs) remapped.push({ ...cue, startMs: offset + cue.startMs - clip.startMs });
+    }
+    offset += clip.endMs - clip.startMs;
+  }
+  return remapped.sort((a, b) => a.startMs - b.startMs);
+}
+
+export default function VideoPage({ meta, onBack, onRename, onDelete, onTrimmed, canTrim, canDownload, canEmbed, onUpgrade, isWatchLater, onToggleWatchLater, onInteractionUpdated, onCloudComment, onCloudReaction, onCloudAddTranscript, onCloudDeleteTranscript, canGenerateAi, onCaptureScreenshot, videoSrc, onDownload, canShare, cloudBackupBusy, onRetryCloudBackup, onShare, onRevokeShare, onTransferOwnership, onShareSlack }: Props) {
   const [src, setSrc] = useState<string | null>(null);
   const [videoLoadError, setVideoLoadError] = useState<string | null>(null);
   const [durationMs, setDurationMs] = useState(meta.durationMs);
@@ -60,6 +75,15 @@ export default function VideoPage({ meta, onBack, onRename, onDelete, onTrimmed,
   const [trimming, setTrimming] = useState(false);
   const [trimError, setTrimError] = useState<string | null>(null);
   const [trimSaved, setTrimSaved] = useState(false);
+  const [editClips, setEditClips] = useState<{ startMs: number; endMs: number }[]>([]);
+  const [editStartMs, setEditStartMs] = useState<number | null>(null);
+  const [advancedEditing, setAdvancedEditing] = useState(false);
+  const [advancedPreview, setAdvancedPreview] = useState<Blob | null>(null);
+  const [advancedPreviewUrl, setAdvancedPreviewUrl] = useState<string | null>(null);
+  const advancedPreviewUrlRef = useRef<string | null>(null);
+  const [savingAdvancedEdit, setSavingAdvancedEdit] = useState(false);
+  const [advancedEditError, setAdvancedEditError] = useState<string | null>(null);
+  const [advancedEditSaved, setAdvancedEditSaved] = useState(false);
   const [downloading, setDownloading] = useState<'webm' | 'mp4' | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [commentDraft, setCommentDraft] = useState('');
@@ -76,10 +100,34 @@ export default function VideoPage({ meta, onBack, onRename, onDelete, onTrimmed,
   const [transferError, setTransferError] = useState<string | null>(null);
   const [transcriptDraft, setTranscriptDraft] = useState('');
   const [transcriptError, setTranscriptError] = useState<string | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [recapBusy, setRecapBusy] = useState(false);
+  const [recapError, setRecapError] = useState<string | null>(null);
+  const [transcriptionBusy, setTranscriptionBusy] = useState(false);
+  const [transcriptionStatus, setTranscriptionStatus] = useState('');
+  const [transcriptionError, setTranscriptionError] = useState<string | null>(null);
+  const transcriptionAbortRef = useRef<AbortController | null>(null);
+  const transcriptRef = useRef(meta.transcript ?? []);
   const [theaterMode, setTheaterMode] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const captionsUrl = meta.transcript?.length ? `data:text/vtt;charset=utf-8,${encodeURIComponent(transcriptAsVtt(meta.transcript))}` : null;
   const trimChanged = trimStartMs > 0 || trimEndMs < durationMs;
+
+  useEffect(() => {
+    transcriptRef.current = meta.transcript ?? [];
+  }, [meta.id, meta.transcript]);
+  useEffect(() => () => transcriptionAbortRef.current?.abort(), []);
+  useEffect(() => () => {
+    if (advancedPreviewUrlRef.current) URL.revokeObjectURL(advancedPreviewUrlRef.current);
+  }, []);
+
+  const clearAdvancedPreview = () => {
+    if (advancedPreviewUrlRef.current) URL.revokeObjectURL(advancedPreviewUrlRef.current);
+    advancedPreviewUrlRef.current = null;
+    setAdvancedPreview(null);
+    setAdvancedPreviewUrl(null);
+  };
 
   useEffect(() => {
     if (videoSrc) return undefined;
@@ -118,15 +166,90 @@ export default function VideoPage({ meta, onBack, onRename, onDelete, onTrimmed,
     if (!trimChanged || trimming) return;
     setTrimming(true); setTrimError(null); setTrimSaved(false);
     try {
-      const original = await getVideo(meta.id);
+      const original = meta.isCloud
+        ? videoSrc ? await fetch(videoSrc).then(async (response) => {
+          if (!response.ok) throw new Error('Could not download the cloud recording for trimming.');
+          return response.blob();
+        }) : null
+        : await getVideo(meta.id);
       if (!original) throw new Error('The original video is missing from this browser.');
       const clipped = await trimVideo(original, trimStartMs, trimEndMs);
-      const updated = await replaceRecordingVideo(meta.id, clipped, trimEndMs - trimStartMs, clipped.type || meta.mimeType);
-      onTrimmed(updated);
+      const transcript = remapTranscriptForClips(meta.transcript ?? [], [{ startMs: trimStartMs, endMs: trimEndMs }]);
+      const updated = meta.isCloud
+        ? await replaceCloudRecordingVideo(meta.id, clipped, trimEndMs - trimStartMs, clipped.type || meta.mimeType, transcript)
+        : await replaceRecordingVideo(meta.id, clipped, trimEndMs - trimStartMs, clipped.type || meta.mimeType, transcript);
+      await onTrimmed(updated);
       setDurationMs(updated.durationMs); setTrimStartMs(0); setTrimEndMs(updated.durationMs); setTrimSaved(true);
     } catch (error) {
       setTrimError(error instanceof Error ? error.message : 'Could not trim this video.');
     } finally { setTrimming(false); }
+  };
+
+  const markEditPoint = () => {
+    if (advancedPreview) return;
+    const playheadMs = Math.round((videoRef.current?.currentTime ?? 0) * 1000);
+    if (editStartMs === null) {
+      if (playheadMs >= durationMs) { setAdvancedEditError('Move the playhead before the end of the video to mark a clip start.'); return; }
+      setEditStartMs(playheadMs);
+      setAdvancedEditError(null);
+      return;
+    }
+    if (playheadMs - editStartMs < 500) { setAdvancedEditError('Move at least half a second forward to mark the clip end.'); return; }
+    if (editClips.length >= 20) { setAdvancedEditError('An edit can contain up to 20 clips.'); return; }
+    if (editClips.some((clip) => editStartMs < clip.endMs && playheadMs > clip.startMs)) { setAdvancedEditError('Kept clips cannot overlap. Remove or adjust the existing clip first.'); return; }
+    setEditClips((clips) => [...clips, { startMs: editStartMs, endMs: playheadMs }].sort((a, b) => a.startMs - b.startMs));
+    setEditStartMs(null);
+    setAdvancedEditError(null);
+    setAdvancedEditSaved(false);
+  };
+
+  const createAdvancedPreview = async () => {
+    if (!canGenerateAi || !editClips.length || advancedEditing) return;
+    setAdvancedEditing(true);
+    setAdvancedEditError(null);
+    setAdvancedEditSaved(false);
+    try {
+      const original = meta.isCloud
+        ? videoSrc ? await fetch(videoSrc).then(async (response) => {
+          if (!response.ok) throw new Error('Could not load the cloud recording for editing.');
+          return response.blob();
+        }) : null
+        : await getVideo(meta.id);
+      if (!original) throw new Error('The original recording is not available in this browser.');
+      const edited = await stitchVideoSegments(original, editClips);
+      if (advancedPreviewUrlRef.current) URL.revokeObjectURL(advancedPreviewUrlRef.current);
+      const previewUrl = URL.createObjectURL(edited);
+      advancedPreviewUrlRef.current = previewUrl;
+      setAdvancedPreviewUrl(previewUrl);
+      setAdvancedPreview(edited);
+    } catch (error) {
+      setAdvancedEditError(error instanceof Error ? error.message : 'Could not create an edit preview.');
+    } finally { setAdvancedEditing(false); }
+  };
+
+  const saveAdvancedEdit = async () => {
+    if (!canGenerateAi || !advancedPreview || savingAdvancedEdit) return;
+    if (!window.confirm('Save this preview as the new recording? This replaces the current video.')) return;
+    setSavingAdvancedEdit(true);
+    setAdvancedEditError(null);
+    setAdvancedEditSaved(false);
+    try {
+      const editedDuration = editClips.reduce((total, clip) => total + clip.endMs - clip.startMs, 0);
+      const transcript = remapTranscriptForClips(meta.transcript ?? [], editClips);
+      const updated = meta.isCloud
+        ? await replaceCloudRecordingVideo(meta.id, advancedPreview, editedDuration, advancedPreview.type || meta.mimeType, transcript, true)
+        : await replaceRecordingVideo(meta.id, advancedPreview, editedDuration, advancedPreview.type || meta.mimeType, transcript);
+      await onTrimmed(updated);
+      setDurationMs(updated.durationMs);
+      setTrimStartMs(0);
+      setTrimEndMs(updated.durationMs);
+      setEditClips([]);
+      setEditStartMs(null);
+      clearAdvancedPreview();
+      setAdvancedEditSaved(true);
+    } catch (error) {
+      setAdvancedEditError(error instanceof Error ? error.message : 'Could not save the edited recording.');
+    } finally { setSavingAdvancedEdit(false); }
   };
 
   const downloadAs = async (format: 'webm' | 'mp4') => {
@@ -203,6 +326,56 @@ export default function VideoPage({ meta, onBack, onRename, onDelete, onTrimmed,
       setTranscriptDraft('');
       setTranscriptError(null);
     } catch (error) { setTranscriptError(error instanceof Error ? error.message : 'Could not save this transcript cue.'); }
+  };
+  const generateAiAssistance = async () => {
+    if (!canGenerateAi || !(meta.isCloud || meta.cloudId) || aiBusy) return;
+    setAiBusy(true);
+    setAiError(null);
+    try {
+      const generated = await generateCloudAiAssistance(meta.isCloud ? meta.id : meta.cloudId!);
+      onInteractionUpdated({ ...meta, ...generated });
+    } catch (error) {
+      setAiError(error instanceof Error ? error.message : 'Could not generate AI notes.');
+    } finally { setAiBusy(false); }
+  };
+  const generateMeetingRecap = async () => {
+    const cloudId = meta.isCloud ? meta.id : meta.cloudId;
+    if (!canGenerateAi || !cloudId || meta.source !== 'meeting' || recapBusy) return;
+    setRecapBusy(true);
+    setRecapError(null);
+    try {
+      const meetingRecap = await generateCloudMeetingRecap(cloudId);
+      onInteractionUpdated({ ...meta, meetingRecap });
+    } catch (error) {
+      setRecapError(error instanceof Error ? error.message : 'Could not generate the meeting recap.');
+    } finally { setRecapBusy(false); }
+  };
+  const generateTranscript = async () => {
+    const cloudId = meta.isCloud ? meta.id : meta.cloudId;
+    if (!canGenerateAi || !cloudId || transcriptionBusy || transcriptRef.current.length) return;
+    const controller = new AbortController();
+    transcriptionAbortRef.current = controller;
+    setTranscriptionBusy(true);
+    setTranscriptionStatus('Preparing audio…');
+    setTranscriptionError(null);
+    try {
+      const sourceUrl = videoRef.current?.currentSrc || videoSrc || src;
+      if (!sourceUrl) throw new Error('The recording is not ready for transcription yet.');
+      let latestTranscript = transcriptRef.current;
+      await transcribeMediaAudio(sourceUrl, controller.signal, async (audio, startMs, segmentDurationMs) => {
+        const cues = await transcribeCloudRecordingChunk(cloudId, audio, startMs, segmentDurationMs, controller.signal);
+        latestTranscript = [...latestTranscript, ...cues].sort((a, b) => a.startMs - b.startMs);
+        transcriptRef.current = latestTranscript;
+        onInteractionUpdated({ ...meta, transcript: latestTranscript });
+      }, ({ segment }) => setTranscriptionStatus(`Transcribing audio segment ${segment}…`));
+      setTranscriptionStatus(transcriptRef.current.length ? 'Transcript saved to this recording.' : 'No speech was detected in this recording.');
+    } catch (error) {
+      if (controller.signal.aborted) setTranscriptionStatus('Transcription cancelled.');
+      else setTranscriptionError(error instanceof Error ? error.message : 'Could not transcribe this recording.');
+    } finally {
+      if (transcriptionAbortRef.current === controller) transcriptionAbortRef.current = null;
+      setTranscriptionBusy(false);
+    }
   };
   const removeTranscript = async (cueId: string) => {
     try {
@@ -339,16 +512,16 @@ export default function VideoPage({ meta, onBack, onRename, onDelete, onTrimmed,
 
   return (
     <section className={`pdf-video-page${theaterMode ? ' is-theater' : ''}`} aria-label="Review recording">
-      <button onClick={onBack} className="pdf-back-button">← Back to library</button>
+      <button onClick={onBack} className="pdf-back-button"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6" /></svg>Back to library</button>
       <div className="pdf-video-layout">
         <div className="pdf-video-main">
           <div className="pdf-video-preview">
-            {videoLoadError ? <p role="alert" className="pdf-trim-error">{videoLoadError}</p> : (videoSrc ?? src) ? <video ref={videoRef} src={videoSrc ?? src ?? undefined} crossOrigin={videoSrc ? 'anonymous' : undefined} controls onLoadedMetadata={(event) => {
+            {videoLoadError ? <p role="alert" className="pdf-trim-error">{videoLoadError}</p> : (advancedPreviewUrl ?? videoSrc ?? src) ? <video ref={videoRef} src={advancedPreviewUrl ?? videoSrc ?? src ?? undefined} crossOrigin={videoSrc && !advancedPreviewUrl ? 'anonymous' : undefined} controls onLoadedMetadata={(event) => {
               const measured = Number.isFinite(event.currentTarget.duration) ? Math.round(event.currentTarget.duration * 1000) : 0;
               if (!durationMs && measured) { setDurationMs(measured); setTrimEndMs(measured); }
-            }} onError={() => setVideoLoadError('This video could not be played. Check that the recording is available and try reopening it from the Library.')}>{captionsUrl && <track kind="captions" srcLang="en" label="English captions" src={captionsUrl} default />}</video> : <p role="status">Loading recording…</p>}
+            }} onError={() => setVideoLoadError('We couldn’t play this video. Make sure it’s still available, then reopen it from your Library.')}>{captionsUrl && <track kind="captions" srcLang="en" label="English captions" src={captionsUrl} default />}</video> : <p role="status">Loading recording…</p>}
           </div>
-          {meta.isCloud ? <section className="pdf-trim-section"><h2>Cloud recording</h2><p>Cloud recordings play from your workspace. Trimming is available on local recordings.</p></section> : !canTrim ? <section className="pdf-trim-section"><h2>Basic video editing</h2><p>Trimming is included with Business and Business + AI.</p><button onClick={onUpgrade}>View plans</button></section> : <section className="pdf-trim-section" aria-labelledby="trim-title">
+          {!canTrim ? <section className="pdf-trim-section"><h2>Trim your recording</h2><p>Cut the start and end of any video. Trimming is available on Business and Business + AI.</p><button onClick={onUpgrade}>See plans</button></section> : meta.isCloud && !meta.canManage ? <section className="pdf-trim-section"><h2>Trimming is owner-only</h2><p>Only the owner of this workspace recording can trim it.</p></section> : <section className="pdf-trim-section" aria-labelledby="trim-title">
             <h2 id="trim-title">Trim your recording</h2>
             <div className="pdf-trim-track" aria-hidden="true"><span /></div>
             <div className="pdf-trim-controls">
@@ -370,16 +543,31 @@ export default function VideoPage({ meta, onBack, onRename, onDelete, onTrimmed,
             {trimSaved && <p role="status" className="pdf-success">Trimmed recording saved to your library.</p>}
             {trimError && <p role="alert" className="pdf-trim-error">{trimError}</p>}
           </section>}
+          {canGenerateAi && <section className="pdf-trim-section advanced-edit-section" aria-labelledby="advanced-edit-title">
+            <div className="advanced-edit-heading"><div><h2 id="advanced-edit-title">Advanced editing</h2><p>Business + AI</p></div><span>Multi-clip</span></div>
+            <p>Move the playhead, mark where each clip starts and ends, then combine the clips you want to keep into a single cut.</p>
+            <div className="advanced-edit-actions">
+              <button onClick={markEditPoint} disabled={Boolean(advancedPreviewUrl) || advancedEditing || savingAdvancedEdit}>{editStartMs === null ? 'Mark clip start' : 'Mark clip end'}</button>
+              <button onClick={() => { setEditClips([]); setEditStartMs(null); clearAdvancedPreview(); setAdvancedEditError(null); setAdvancedEditSaved(false); }} disabled={(!editClips.length && editStartMs === null && !advancedPreview) || savingAdvancedEdit}>Clear clips</button>
+            </div>
+            {editStartMs !== null && <p role="status">Clip starts at {fmtTime(editStartMs)}. Move the playhead forward, then mark where it ends.</p>}
+            {editClips.length > 0 && <><ol className="advanced-edit-clips">{editClips.map((clip, index) => <li key={`${clip.startMs}-${clip.endMs}`}><button onClick={() => seek(clip.startMs)}>{fmtTime(clip.startMs)} – {fmtTime(clip.endMs)}</button><span>{fmtTime(clip.endMs - clip.startMs)}</span><button aria-label={`Remove clip ${index + 1}`} onClick={() => setEditClips((clips) => clips.filter((_, clipIndex) => clipIndex !== index))}>Remove</button></li>)}</ol><p>Kept footage: {fmtTime(editClips.reduce((total, clip) => total + clip.endMs - clip.startMs, 0))}</p></>}
+            <div className="advanced-edit-actions"><button onClick={() => void createAdvancedPreview()} disabled={!editClips.length || advancedEditing || Boolean(advancedPreview)}>{advancedEditing ? 'Creating preview…' : 'Create edit preview'}</button>{advancedPreview && <button onClick={clearAdvancedPreview} disabled={savingAdvancedEdit}>Discard preview</button>}</div>
+            {advancedPreview && <><p role="status">Preview the combined clips in the player above. Saving replaces the original recording.</p><button onClick={() => void saveAdvancedEdit()} disabled={savingAdvancedEdit}>{savingAdvancedEdit ? 'Saving edited recording…' : 'Save edited recording'}</button></>}
+            {advancedEditSaved && <p role="status" className="pdf-success">Edited recording saved to your library.</p>}
+            {advancedEditError && <p role="alert" className="pdf-trim-error">{advancedEditError}</p>}
+          </section>}
         </div>
 
-        <aside className="pdf-video-side">
-          <h1>Review recording</h1>
+        <aside className="pdf-video-side recording-details-panel">
+          <h1>Recording details</h1>
           <label className="pdf-title-label">Title
             <input key={meta.id} className="pdf-video-title" defaultValue={meta.title} maxLength={120}
               onBlur={(event) => commitTitle(event.currentTarget)}
               onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }} />
           </label>
           <p className="pdf-video-details">{fmtTime(durationMs)} · {fmtDate(meta.createdAt)} · {fmtSize(meta.size)}</p>
+          {canGenerateAi && <section className="recording-share-tools ai-recording-tools"><span className="ai-plan-pill">Business + AI</span><h2>AI title, summary & transcript</h2><p>Generate a transcript, then create a title and summary in the recording’s main language.</p>{!meta.transcript?.length && <button className="ai-primary-action" onClick={() => void generateTranscript()} disabled={transcriptionBusy}>{transcriptionBusy ? transcriptionStatus || 'Transcribing…' : 'Generate transcript'}</button>}{transcriptionBusy && <button onClick={() => transcriptionAbortRef.current?.abort()}>Cancel</button>}{transcriptionStatus && <p role="status">{transcriptionStatus}</p>}{transcriptionError && <p role="alert" className="pdf-trim-error">{transcriptionError}</p>}{meta.transcript?.length ? <button className="ai-primary-action" onClick={() => void generateAiAssistance()} disabled={aiBusy || transcriptionBusy}>{aiBusy ? 'Generating…' : 'Generate AI title and summary'}</button> : <p className="ai-action-hint">Add a transcript to generate notes.</p>}{meta.summary && <p className="ai-recording-summary"><strong>Summary</strong><br />{meta.summary}</p>}{aiError && <p role="alert" className="pdf-trim-error">{aiError}</p>}{meta.source === 'meeting' && <div className="meeting-recap"><h3>AI meeting recap</h3><p>Get key points, decisions, and action items in the transcript’s main language.</p><button className="ai-primary-action" onClick={() => void generateMeetingRecap()} disabled={recapBusy || !meta.transcript?.length}>{recapBusy ? 'Creating recap…' : meta.meetingRecap ? 'Regenerate meeting recap' : meta.transcript?.length ? 'Generate meeting recap' : 'Add a transcript first'}</button>{recapError && <p role="alert" className="pdf-trim-error">{recapError}</p>}{meta.meetingRecap && <div className="meeting-recap-content"><h4>Summary</h4><p>{meta.meetingRecap.summary}</p><h4>Key points</h4>{meta.meetingRecap.keyPoints.length ? <ul>{meta.meetingRecap.keyPoints.map((point, index) => <li key={index}>{point}</li>)}</ul> : <p>No key points identified.</p>}<h4>Decisions</h4>{meta.meetingRecap.decisions.length ? <ul>{meta.meetingRecap.decisions.map((decision, index) => <li key={index}>{decision}</li>)}</ul> : <p>No decisions identified.</p>}<h4>Action items</h4>{meta.meetingRecap.actionItems.length ? <ul>{meta.meetingRecap.actionItems.map((action, index) => <li key={index}><strong>{action.task}</strong>{action.owner && <span> · {action.owner}</span>}{action.dueDate && <small> · Due {action.dueDate}</small>}</li>)}</ul> : <p>No action items identified.</p>}</div>}</div>}</section>}
           <button onClick={onToggleWatchLater}>{isWatchLater ? '✓ Saved to Watch later' : '+ Watch later'}</button>
           <button onClick={captureScreenshot}>Capture screenshot</button>
           {screenshotError && <p role="alert" className="pdf-trim-error">{screenshotError}</p>}
@@ -392,23 +580,23 @@ export default function VideoPage({ meta, onBack, onRename, onDelete, onTrimmed,
             }).catch((error: unknown) => setShareError(error instanceof Error ? error.message : 'Could not create a share link.')).finally(() => setShareBusy(false));
           }}>{shareBusy ? 'Creating link…' : 'Copy share link'}</button><button disabled={shareBusy} onClick={() => {
             setShareBusy(true); setShareError(null);
-            void onRevokeShare().then(() => { setShareLink(''); setEmbedCode(''); setShareError('Share link revoked.'); }).catch((error: unknown) => setShareError(error instanceof Error ? error.message : 'Could not revoke the share link.')).finally(() => setShareBusy(false));
-          }}>Revoke share link</button><button disabled={shareBusy} onClick={() => void copyEmbedCode()}>{!canEmbed ? 'Unlock embed code' : shareBusy ? 'Preparing…' : 'Copy embed code'}</button>{onShareSlack && <button disabled={slackBusy} onClick={() => void sendToSlack()}>{slackBusy ? 'Sending to Slack…' : 'Share to Slack'}</button>}{shareLink && <label><span className="sr-only">Share link</span><input readOnly value={shareLink} onFocus={(event) => event.currentTarget.select()} /></label>}{embedCode && <label><span>Embed code</span><textarea readOnly value={embedCode} onFocus={(event) => event.currentTarget.select()} /></label>}{shareError && <p role="status">{shareError}</p>}</section>}
+            void onRevokeShare().then(() => { setShareLink(''); setEmbedCode(''); setShareError('Share link disabled.'); }).catch((error: unknown) => setShareError(error instanceof Error ? error.message : 'Could not revoke the share link.')).finally(() => setShareBusy(false));
+          }}>Disable share link</button><button disabled={shareBusy} onClick={() => void copyEmbedCode()}>{!canEmbed ? 'Unlock embed code' : shareBusy ? 'Preparing…' : 'Copy embed code'}</button>{onShareSlack && <button disabled={slackBusy} onClick={() => void sendToSlack()}>{slackBusy ? 'Sending to Slack…' : 'Share to Slack'}</button>}{shareLink && <label><span className="sr-only">Share link</span><input readOnly value={shareLink} onFocus={(event) => event.currentTarget.select()} /></label>}{embedCode && <label><span>Embed code</span><textarea readOnly value={embedCode} onFocus={(event) => event.currentTarget.select()} /></label>}{shareError && <p role="status">{shareError}</p>}</section>}
           {!canShare && !meta.isCloud && !meta.cloudId && <section className="recording-share-tools"><h2>Share this recording</h2><p>This recording is saved on this device. Back it up to workspace storage to create a share link or embed.</p>{onRetryCloudBackup ? <button disabled={cloudBackupBusy} onClick={onRetryCloudBackup}>{cloudBackupBusy ? 'Saving to workspace…' : 'Back up to workspace and enable sharing'}</button> : <p>Workspace sharing is available after hosted storage is configured and this recording is backed up.</p>}</section>}
           {onTransferOwnership && <section className="recording-share-tools"><h2>Transfer ownership</h2><p>Give another active workspace member control of this cloud recording.</p><label><span className="sr-only">Choose a new owner</span><select value={transferMemberId} onChange={(event) => setTransferMemberId(event.currentTarget.value)} disabled={transferBusy || transferMembers.length === 0}><option value="">{transferMembers.length ? 'Choose a workspace member' : 'No other active members'}</option>{transferMembers.map((member) => <option key={member.id} value={member.id}>{member.name || member.email.split('@')[0]} · {member.email}</option>)}</select></label><button onClick={() => void transferOwnership()} disabled={!transferMemberId || transferBusy}>{transferBusy ? 'Transferring…' : 'Transfer recording'}</button>{transferError && <p role="alert" className="pdf-trim-error">{transferError}</p>}</section>}
           <section className="starter-engagement" aria-labelledby="engagement-title">
             <h2 id="engagement-title">Reactions and comments</h2>
             <div className="starter-reaction-picker" role="group" aria-label="Add a reaction">{['👍', '❤️', '😄', '🎉', '👀', '👏'].map((emoji) => { const reacted = (meta.myReactions ?? (meta.reacted ? ['👍'] : [])).includes(emoji); return <button key={emoji} className={reacted ? 'is-reacted' : ''} onClick={() => void toggleReaction(emoji)} aria-pressed={reacted} aria-label={`React with ${emoji}`}>{emoji} <span>{meta.reactions?.[emoji] ?? (emoji === '👍' ? meta.reactionCount ?? 0 : 0)}</span></button>; })}</div>
-            <form onSubmit={(event) => void addComment(event)}><label className="sr-only" htmlFor="recording-comment">Add a comment</label><textarea id="recording-comment" maxLength={1000} placeholder="Write a comment…" value={commentDraft} onChange={(event) => setCommentDraft(event.currentTarget.value)} /><button type="submit" disabled={!commentDraft.trim()}>Comment</button></form>
+            <form onSubmit={(event) => void addComment(event)}><label className="sr-only" htmlFor="recording-comment">Add a comment</label><textarea id="recording-comment" maxLength={1000} placeholder="Write a comment…" value={commentDraft} onChange={(event) => setCommentDraft(event.currentTarget.value)} /><button type="submit" disabled={!commentDraft.trim()}>Post comment</button></form>
             {interactionError && <p role="alert" className="pdf-trim-error">{interactionError}</p>}
             <ul>{(meta.comments ?? []).map((comment) => <li key={comment.id}><strong>{comment.author}</strong><small>{new Date(comment.createdAt).toLocaleString()}</small><p>{comment.text}</p></li>)}</ul>
           </section>
           <section className="starter-transcript" aria-labelledby="transcript-title">
             <h2 id="transcript-title">Transcript and captions</h2>
-            <p>Generate captions while recording in supported browsers, or add timestamped transcript lines here. Captions are saved with this recording and can be enabled from the video player’s captions menu.</p>
-            <form onSubmit={(event) => void addTranscript(event)}><label className="sr-only" htmlFor="transcript-line">Transcript line</label><textarea id="transcript-line" maxLength={1000} placeholder="Type the words for the current frame…" value={transcriptDraft} onChange={(event) => setTranscriptDraft(event.currentTarget.value)} /><button type="submit" disabled={!transcriptDraft.trim()}>Add at current time</button></form>
+            <p>Add timestamped lines to caption this recording. Captions are saved with the video and can be turned on from the player’s captions menu.</p>
+            <form onSubmit={(event) => void addTranscript(event)}><label className="sr-only" htmlFor="transcript-line">Transcript line</label><textarea id="transcript-line" maxLength={1000} placeholder="Type what is said at this moment…" value={transcriptDraft} onChange={(event) => setTranscriptDraft(event.currentTarget.value)} /><button type="submit" disabled={!transcriptDraft.trim()}>Add at current time</button></form>
             {transcriptError && <p role="alert" className="pdf-trim-error">{transcriptError}</p>}
-            {meta.transcript?.length ? <ol>{[...meta.transcript].sort((a, b) => a.startMs - b.startMs).map((cue) => <li key={cue.id}><button onClick={() => seekToCue(cue.startMs)}>{fmtTime(cue.startMs)}</button><span>{cue.text}</span><button aria-label="Delete transcript line" onClick={() => void removeTranscript(cue.id)}>×</button></li>)}</ol> : <p>No transcript lines yet.</p>}
+            {meta.transcript?.length ? <ol>{[...meta.transcript].sort((a, b) => a.startMs - b.startMs).map((cue) => <li key={cue.id}><button onClick={() => seekToCue(cue.startMs)}>{fmtTime(cue.startMs)}</button><span>{cue.text}</span><button aria-label="Delete transcript line" onClick={() => void removeTranscript(cue.id)}>×</button></li>)}</ol> : <p className="transcript-empty">No transcript yet. Add your first line above.</p>}
             {captionsUrl && <a className="transcript-download" href={captionsUrl} download={`${meta.title.replace(/[\\/:*?"<>|]+/g, '-')}.vtt`}>Download captions (.vtt)</a>}
           </section>
           <button className="pdf-save-button" onClick={onBack}>Save to library</button>
@@ -421,7 +609,7 @@ export default function VideoPage({ meta, onBack, onRename, onDelete, onTrimmed,
             </button>
           </> : <button onClick={onUpgrade}>Download recording · Business</button>}
           {downloadError && <p role="alert" className="pdf-trim-error">{downloadError}</p>}
-          <button className="pdf-discard-button" onClick={onDelete}>Discard recording</button>
+          <button className="pdf-discard-button" onClick={onDelete}>Delete recording</button>
         </aside>
       </div>
     </section>

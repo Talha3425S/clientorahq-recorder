@@ -176,6 +176,8 @@ CREATE TABLE IF NOT EXISTS recordings (
   workspace_id uuid NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   folder_id uuid REFERENCES workspace_folders(id) ON DELETE SET NULL,
   title varchar(120) NOT NULL,
+  ai_summary text,
+  ai_recap jsonb,
   object_key text NOT NULL UNIQUE,
   thumbnail_key text,
   thumbnail_size_bytes bigint CHECK (thumbnail_size_bytes IS NULL OR thumbnail_size_bytes BETWEEN 1 AND 524288),
@@ -196,6 +198,8 @@ ALTER TABLE recordings ADD COLUMN IF NOT EXISTS thumbnail_size_bytes bigint CHEC
 ALTER TABLE recordings ADD COLUMN IF NOT EXISTS access text NOT NULL DEFAULT 'private';
 ALTER TABLE recordings ADD COLUMN IF NOT EXISTS archived boolean NOT NULL DEFAULT false;
 ALTER TABLE recordings ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'uploaded';
+ALTER TABLE recordings ADD COLUMN IF NOT EXISTS ai_summary text;
+ALTER TABLE recordings ADD COLUMN IF NOT EXISTS ai_recap jsonb;
 INSERT INTO workspaces(owner_id)
 SELECT DISTINCT owner_id FROM recordings WHERE workspace_id IS NULL
 ON CONFLICT (owner_id) DO NOTHING;

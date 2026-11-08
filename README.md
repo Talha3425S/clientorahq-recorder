@@ -2,7 +2,7 @@
 
 [**Open the live recorder**](https://clientorahq-recorder-three.vercel.app/)
 
-A browser based screen recorder built with React, TypeScript, and Vite. Screen video, microphone audio, and the optional camera bubble are composed locally; recordings are stored in IndexedDB and are not uploaded.
+A browser based screen recorder built with React, TypeScript, and Vite. Screen video, microphone audio, and the optional camera bubble are composed locally. Recordings are saved in browser IndexedDB; Business cloud upload and sharing use a private Supabase Storage bucket when configured.
 
 ## Email signup and OTP API
 
@@ -16,6 +16,17 @@ OTP signup and login require PostgreSQL and an SMTP account. Configure both befo
 4. In another terminal run `npm run dev` and open the Vite URL. Click the account avatar or visit `/signup` to create an account. Use `/login` to sign in.
 
 The API creates the auth tables on startup. In production, use HTTPS, a managed PostgreSQL service, real SMTP credentials, and a strong secret manager. The production frontend and API must be served on the same origin or configured behind a reverse proxy; the session cookie is Secure in production. Do not commit `.env` or use the sample credentials.
+
+## Supabase Storage (free plan)
+
+Cloud uploads and share links use Supabase Storage's S3-compatible API. To configure it:
+
+1. Create a Supabase project on the Free plan and create a **private** Storage bucket named `recordings`.
+2. In Storage settings, enable the S3 protocol and generate an S3 access key pair. Copy the endpoint and region shown there.
+3. Put the endpoint, region, bucket name, access key ID, and secret access key in `.env` using the `SUPABASE_STORAGE_*` names from `.env.example`. Keep the secret key server-side and never add it to a `VITE_` variable.
+4. Restart `npm run server`.
+
+The current Supabase Free plan includes 1 GB of Storage and limits individual files to 50 MB. This app enforces the 50 MB file limit. Supabase also limits free-plan bandwidth, and free projects may pause after inactivity; check Supabase's current [pricing](https://supabase.com/pricing) before using it for shared recordings.
 
 ## Slack contact sync
 
@@ -50,6 +61,6 @@ Designed for current desktop Chrome, Edge, and Firefox. This project has not yet
 
 - Run and document a manual browser matrix for Chrome, Edge, and Firefox, including audio synchronization and trim output.
 - Add automated browser tests for the recorder lifecycle and IndexedDB library.
-- Add hosted recording sharing only after explicit storage and privacy requirements are defined.
+- Add resumable uploads for large files if the storage provider or plan allows files larger than 50 MB.
 
-All recording and trimming happens in the browser. The app does not send recordings to a server.
+Recording composition and trimming happen in the browser. Cloud uploads are sent directly to Supabase Storage through short-lived signed URLs; the API stores recording metadata in PostgreSQL.

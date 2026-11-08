@@ -52,7 +52,7 @@ export const PLANS: PlanDefinition[] = [
     monthlyPrice: 24,
     annualMonthlyPrice: 20,
     description: 'Business features with AI-assisted video workflows.',
-    features: ['Everything in Business', 'AI titles, summaries, and transcripts (coming soon)', 'Meeting recaps (coming soon)', 'Advanced editing tools (coming soon)'],
+    features: ['Everything in Business', 'AI-generated titles and summaries, plus transcript cleanup', 'AI meeting recaps', 'Multi-clip video editing with preview'],
   },
 ];
 
