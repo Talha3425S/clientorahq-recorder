@@ -29,6 +29,10 @@ Copy the output directly into Railway's `DATABASE_SSL_CA_BASE64` variable, then 
 
 The API creates the auth tables on startup. In production, use HTTPS, a managed PostgreSQL service, real SMTP credentials, and a strong secret manager. The production frontend and API must be served on the same origin or configured behind a reverse proxy; the session cookie is Secure in production. Do not commit `.env` or use the sample credentials.
 
+### Vercel frontend with Railway API
+
+`vercel.json` rewrites `/api/*` requests from the Vercel frontend to the Railway API, keeping browser API calls and session cookies on the frontend origin. Set `APP_ORIGIN` in Railway to the exact HTTPS origin of the Vercel deployment (for example, `https://your-project.vercel.app`, with no trailing slash). Redeploy both services after changing the configuration. Confirm the rewrite by opening `https://your-project.vercel.app/api/v1/health`; it should return `{"status":"ok"}`.
+
 ## Supabase Storage (free plan)
 
 Cloud uploads and share links use Supabase Storage's S3-compatible API. To configure it:
