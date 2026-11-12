@@ -13,7 +13,11 @@ const { Pool } = pg;
 const app = express();
 const port = Number(process.env.PORT || 3001);
 const isProduction = process.env.NODE_ENV === 'production';
-const appOrigin = process.env.APP_ORIGIN;
+const normalizeOrigin = (value) => {
+  if (!value) return undefined;
+  try { return new URL(value.trim()).origin; } catch { return undefined; }
+};
+const appOrigin = normalizeOrigin(process.env.APP_ORIGIN);
 const otpSecret = process.env.OTP_SECRET;
 const sessionSecret = process.env.SESSION_SECRET;
 const databaseSslCa = process.env.DATABASE_SSL_CA_BASE64
@@ -264,7 +268,11 @@ function requireConfiguration() {
 
 function requireSameOrigin(req, res, next) {
   if (!appOrigin) return jsonError(res, 503, 'SERVER_NOT_CONFIGURED', 'Authentication is not configured yet.');
-  if (req.get('origin') !== appOrigin) return jsonError(res, 403, 'INVALID_ORIGIN', 'Request origin could not be verified.');
+  const requestOrigin = normalizeOrigin(req.get('origin'));
+  if (requestOrigin !== appOrigin) {
+    console.warn('Rejected auth request origin:', { requestOrigin: req.get('origin') || null, configuredOrigin: appOrigin });
+    return jsonError(res, 403, 'INVALID_ORIGIN', 'Request origin could not be verified.');
+  }
   next();
 }
 
