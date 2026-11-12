@@ -16,7 +16,15 @@ const isProduction = process.env.NODE_ENV === 'production';
 const appOrigin = process.env.APP_ORIGIN;
 const otpSecret = process.env.OTP_SECRET;
 const sessionSecret = process.env.SESSION_SECRET;
-const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: true } : undefined });
+const databaseSslCa = process.env.DATABASE_SSL_CA_BASE64
+  ? Buffer.from(process.env.DATABASE_SSL_CA_BASE64, 'base64').toString('utf8')
+  : process.env.DATABASE_SSL_CA?.replace(/\\n/g, '\n');
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_SSL === 'true'
+    ? { rejectUnauthorized: true, ...(databaseSslCa ? { ca: databaseSslCa } : {}) }
+    : undefined,
+});
 const otpLifetimeMs = 10 * 60 * 1000;
 const sessionLifetimeMs = 30 * 24 * 60 * 60 * 1000;
 const maxSinglePutBytes = 50 * 1024 * 1024;

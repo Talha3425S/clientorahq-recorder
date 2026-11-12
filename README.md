@@ -15,6 +15,18 @@ OTP signup and login require PostgreSQL and an SMTP account. Configure both befo
 3. In one terminal run `npm run server` (API on port 3001).
 4. In another terminal run `npm run dev` and open the Vite URL. Click the account avatar or visit `/signup` to create an account. Use `/login` to sign in.
 
+### Hosted Supabase PostgreSQL
+
+For Railway or another hosted Node service, use the Supabase PostgreSQL connection string and set `DATABASE_SSL=true`. If Node reports `self-signed certificate in certificate chain`, download the database root certificate from **Supabase Dashboard → Database → SSL Configuration → Download Certificate**. Base64-encode the certificate file and add the result as the secret variable `DATABASE_SSL_CA_BASE64` in Railway. The server decodes that CA and verifies the TLS certificate chain; do not disable certificate verification in production.
+
+On Windows PowerShell, print the base64 value without changing the certificate:
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\to\prod-ca-2021.crt"))
+```
+
+Copy the output directly into Railway's `DATABASE_SSL_CA_BASE64` variable, then redeploy. Keep the certificate value in Railway and do not commit it to Git.
+
 The API creates the auth tables on startup. In production, use HTTPS, a managed PostgreSQL service, real SMTP credentials, and a strong secret manager. The production frontend and API must be served on the same origin or configured behind a reverse proxy; the session cookie is Secure in production. Do not commit `.env` or use the sample credentials.
 
 ## Supabase Storage (free plan)
