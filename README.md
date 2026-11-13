@@ -6,7 +6,7 @@ A browser based screen recorder built with React, TypeScript, and Vite. Screen v
 
 ## Email signup and OTP API
 
-The `/signup` page requests a six digit email code for account creation; `/login` requests a sign-in code for an existing account. The Express API stores only a keyed hash of each code, expires codes after 10 minutes, allows at most five verification attempts, limits resends, and creates an HttpOnly session cookie after verification. A successful signup or login redirects to the recorder dashboard. The existing dashboard and its local recordings continue to work without an account.
+The `/signup` page requests a six digit email code for account creation; `/login` requests a sign-in code for an existing account. The Express API stores only a keyed hash of each code, expires codes after 10 minutes, allows at most five verification attempts, limits resends, and creates an HttpOnly session cookie after verification. Sessions expire after 20 minutes, and sign-in is scoped to the current browser tab. A successful signup or login redirects to the recorder dashboard. The existing dashboard and its local recordings continue to work without an account.
 
 OTP signup and login require PostgreSQL and an email delivery provider. For Railway Free/Trial/Hobby, use Resend's HTTPS API because outbound SMTP is unavailable on those plans. Configure these before starting the API:
 

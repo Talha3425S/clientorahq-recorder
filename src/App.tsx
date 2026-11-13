@@ -162,10 +162,30 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
+    let expiryTimer: number | undefined;
+    const isPublicSharePage = /^\/share\/[^/]+\/?$/.test(window.location.pathname);
+    if (!isPublicSharePage && sessionStorage.getItem('clientorahq-session-tab') !== 'active') {
+      // Keep authentication scoped to this browser tab. Closing it and opening
+      // the app again requires a fresh OTP sign-in, even if a browser restores
+      // session cookies from a previous window.
+      void fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'same-origin' }).finally(() => {
+        if (cancelled) return;
+        if (isAuthPage) setAuthStatus('unauthenticated');
+        else window.location.replace('/login');
+      });
+      return () => { cancelled = true; };
+    }
     void fetch('/api/v1/auth/me', { credentials: 'same-origin' }).then(async (response) => {
       if (cancelled) return;
       if (response.ok) {
-        const payload = await response.json() as { user?: { plan?: unknown; businessTrialStartedAt?: string | null; businessTrialEndsAt?: string | null; businessTrialDaysRemaining?: number; isBusinessTrial?: boolean; businessTrialExpired?: boolean } };
+        const payload = await response.json() as { user?: { plan?: unknown; sessionExpiresAt?: string; businessTrialStartedAt?: string | null; businessTrialEndsAt?: string | null; businessTrialDaysRemaining?: number; isBusinessTrial?: boolean; businessTrialExpired?: boolean } };
+        const sessionExpiresAt = payload.user?.sessionExpiresAt ? Date.parse(payload.user.sessionExpiresAt) : Number.NaN;
+        expiryTimer = Number.isFinite(sessionExpiresAt)
+          ? window.setTimeout(() => {
+            sessionStorage.removeItem('clientorahq-session-tab');
+            window.location.replace('/login');
+          }, Math.max(0, sessionExpiresAt - Date.now()))
+          : undefined;
         if (isPlanId(payload.user?.plan)) setPlan(payload.user.plan);
         setBusinessTrial({ startedAt: payload.user?.businessTrialStartedAt ?? null, endsAt: payload.user?.businessTrialEndsAt ?? null, daysRemaining: payload.user?.businessTrialDaysRemaining ?? 0, active: payload.user?.isBusinessTrial ?? false, expired: payload.user?.businessTrialExpired ?? false });
         if (payload.user?.businessTrialExpired) setNotice('Your 14-day Business trial has ended. Your workspace is now on Starter. Choose Business to restore Business features.');
@@ -180,7 +200,10 @@ export default function App() {
     }).catch(() => {
       if (!cancelled) setAuthStatus('error');
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (expiryTimer !== undefined) window.clearTimeout(expiryTimer);
+    };
   }, [isAuthPage]);
 
   useEffect(() => {
@@ -791,6 +814,7 @@ export default function App() {
     try {
       const response = await fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'same-origin' });
       if (!response.ok) throw new Error('Could not sign out right now. Please try again.');
+      sessionStorage.removeItem('clientorahq-session-tab');
       window.location.replace('/login');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not sign out right now. Check your connection and try again.');

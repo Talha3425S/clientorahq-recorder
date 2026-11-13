@@ -30,7 +30,7 @@ const pool = new Pool({
     : undefined,
 });
 const otpLifetimeMs = 10 * 60 * 1000;
-const sessionLifetimeMs = 30 * 24 * 60 * 60 * 1000;
+const sessionLifetimeMs = 20 * 60 * 1000;
 const maxSinglePutBytes = 50 * 1024 * 1024;
 const resendApiKey = process.env.RESEND_API_KEY;
 const mailer = process.env.SMTP_HOST ? nodemailer.createTransport({
@@ -275,7 +275,9 @@ const digestEqual = (left, right) => {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 };
 const secureCookie = isProduction ? '; Secure' : '';
-const setSessionCookie = (res, token) => res.set('Set-Cookie', `loom_session=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${Math.floor(sessionLifetimeMs / 1000)}${secureCookie}`);
+// A session cookie expires when the browser session ends; the database expiry
+// is the authoritative 20-minute limit even if the browser restores a tab.
+const setSessionCookie = (res, token) => res.set('Set-Cookie', `loom_session=${token}; HttpOnly; Path=/; SameSite=Lax${secureCookie}`);
 const clearSessionCookie = (res) => res.set('Set-Cookie', `loom_session=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0${secureCookie}`);
 
 function requireConfiguration() {
@@ -348,7 +350,7 @@ async function getSession(req) {
     [session.rows[0].id],
   );
   const result = await pool.query(
-    `SELECT u.id, u.email, coalesce(workspace_owner.plan, u.plan) AS plan,
+    `SELECT u.id, u.email, s.expires_at AS "sessionExpiresAt", coalesce(workspace_owner.plan, u.plan) AS plan,
             coalesce(workspace_owner.business_trial_started_at, u.business_trial_started_at) AS "businessTrialStartedAt",
             coalesce(workspace_owner.business_trial_ends_at, u.business_trial_ends_at) AS "businessTrialEndsAt",
             coalesce(workspace_owner.business_trial_converted_at, u.business_trial_converted_at) AS "businessTrialConvertedAt",
@@ -612,7 +614,10 @@ async function verifyOtp(req, res, purpose) {
     await client.query('DELETE FROM otp_challenges WHERE email = $1', [email]);
     const token = crypto.randomBytes(32).toString('base64url');
     const tokenHash = hashValue(token, sessionSecret);
-    await client.query('INSERT INTO sessions(token_hash, user_id, expires_at) VALUES ($1, $2, now() + interval \'30 days\')', [tokenHash, userResult.rows[0].id]);
+    await client.query(
+      "INSERT INTO sessions(token_hash, user_id, expires_at) VALUES ($1, $2, now() + ($3 * interval '1 millisecond'))",
+      [tokenHash, userResult.rows[0].id, sessionLifetimeMs],
+    );
     await client.query('COMMIT');
     setSessionCookie(res, token);
     return res.json({ user: userResult.rows[0] });

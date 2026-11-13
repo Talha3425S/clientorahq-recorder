@@ -47,6 +47,7 @@ export default function AuthPage({ initialFlow = 'signup' }: { initialFlow?: Aut
     setBusy(true);
     try {
       await postAuth(`/api/v1/auth/${flow}/verify-otp`, { email, code });
+      sessionStorage.setItem('clientorahq-session-tab', 'active');
       window.location.replace('/');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not verify the code.');
