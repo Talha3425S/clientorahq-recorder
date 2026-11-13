@@ -8,9 +8,9 @@ A browser based screen recorder built with React, TypeScript, and Vite. Screen v
 
 The `/signup` page requests a six digit email code for account creation; `/login` requests a sign-in code for an existing account. The Express API stores only a keyed hash of each code, expires codes after 10 minutes, allows at most five verification attempts, limits resends, and creates an HttpOnly session cookie after verification. A successful signup or login redirects to the recorder dashboard. The existing dashboard and its local recordings continue to work without an account.
 
-OTP signup and login require PostgreSQL and an SMTP account. Configure both before starting the API:
+OTP signup and login require PostgreSQL and an email delivery provider. For Railway Free/Trial/Hobby, use Resend's HTTPS API because outbound SMTP is unavailable on those plans. Configure these before starting the API:
 
-1. Create a PostgreSQL database, then copy `.env.example` to `.env` and set `DATABASE_URL`, the SMTP values, `SMTP_FROM`, and two independent random values for `OTP_SECRET` and `SESSION_SECRET`.
+1. Create a PostgreSQL database, then copy `.env.example` to `.env` and set `DATABASE_URL`, `RESEND_API_KEY`, `RESEND_FROM`, and two independent random values for `OTP_SECRET` and `SESSION_SECRET`. SMTP can be used for local development instead.
 2. Set `APP_ORIGIN` to the exact browser origin. For the default local Vite URL, use `http://localhost:5173`.
 3. In one terminal run `npm run server` (API on port 3001).
 4. In another terminal run `npm run dev` and open the Vite URL. Click the account avatar or visit `/signup` to create an account. Use `/login` to sign in.
@@ -26,6 +26,10 @@ On Windows PowerShell, print the base64 value without changing the certificate:
 ```
 
 Copy the output directly into Railway's `DATABASE_SSL_CA_BASE64` variable, then redeploy. Keep the certificate value in Railway and do not commit it to Git.
+
+### Email delivery on Railway Free
+
+Railway Free, Trial, and Hobby plans block outbound SMTP connections. Create a Resend API key and set `RESEND_API_KEY` and `RESEND_FROM` in Railway. For initial testing, Resend's `onboarding@resend.dev` sender can send only to the email address verified on your Resend account; to send OTPs to arbitrary users, verify a domain you control in Resend and use a sender address on that domain. The server uses the Resend HTTPS API when `RESEND_API_KEY` is set, and keeps SMTP available for local development.
 
 The API creates the auth tables on startup. In production, use HTTPS, a managed PostgreSQL service, real SMTP credentials, and a strong secret manager. The production frontend and API must be served on the same origin or configured behind a reverse proxy; the session cookie is Secure in production. Do not commit `.env` or use the sample credentials.
 

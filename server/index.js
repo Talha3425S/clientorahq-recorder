@@ -32,6 +32,7 @@ const pool = new Pool({
 const otpLifetimeMs = 10 * 60 * 1000;
 const sessionLifetimeMs = 30 * 24 * 60 * 60 * 1000;
 const maxSinglePutBytes = 50 * 1024 * 1024;
+const resendApiKey = process.env.RESEND_API_KEY;
 const mailer = process.env.SMTP_HOST ? nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: Number(process.env.SMTP_PORT || 587),
@@ -39,6 +40,25 @@ const mailer = process.env.SMTP_HOST ? nodemailer.createTransport({
   auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
 }) : null;
 const ipWindows = new Map();
+
+async function sendAppEmail({ to, subject, text, html }) {
+  if (resendApiKey) {
+    if (!process.env.RESEND_FROM) throw new Error('RESEND_FROM is required when RESEND_API_KEY is configured.');
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${resendApiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: process.env.RESEND_FROM, to: [to], subject, text, ...(html ? { html } : {}) }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) {
+      const details = await response.text().catch(() => '');
+      throw new Error(`Email API returned ${response.status}${details ? `: ${details.slice(0, 400)}` : ''}`);
+    }
+    return;
+  }
+  if (!mailer) throw new Error('Configure RESEND_API_KEY or SMTP_HOST to send email.');
+  await mailer.sendMail({ from: process.env.SMTP_FROM, to, subject, text, html });
+}
 
 app.disable('x-powered-by');
 app.set('trust proxy', isProduction ? 1 : false);
@@ -261,8 +281,9 @@ const clearSessionCookie = (res) => res.set('Set-Cookie', `loom_session=; HttpOn
 function requireConfiguration() {
   const missing = [];
   for (const key of ['DATABASE_URL', 'OTP_SECRET', 'SESSION_SECRET']) if (!process.env[key]) missing.push(key);
-  if (!mailer) missing.push('SMTP_HOST');
-  if (!process.env.SMTP_FROM) missing.push('SMTP_FROM');
+  if (!resendApiKey && !mailer) missing.push('RESEND_API_KEY or SMTP_HOST');
+  if (resendApiKey && !process.env.RESEND_FROM) missing.push('RESEND_FROM');
+  if (!resendApiKey && !process.env.SMTP_FROM) missing.push('SMTP_FROM');
   if (missing.length) throw new Error(`Missing required configuration: ${missing.join(', ')}`);
 }
 
@@ -493,8 +514,7 @@ async function requestOtp(req, res, purpose) {
          window_started_at = CASE WHEN $3 THEN otp_challenges.window_started_at ELSE now() END`,
       [email, codeHash, Boolean(sameWindow)],
     );
-    await mailer.sendMail({
-      from: process.env.SMTP_FROM,
+    await sendAppEmail({
       to: email,
       subject: purpose === 'signup' ? 'Your ClientoraHQ verification code' : 'Your ClientoraHQ sign-in code',
       text: `Your ${purpose === 'signup' ? 'verification' : 'sign-in'} code is ${code}. It expires in 10 minutes. If you did not request this code, you can ignore this email.`,
@@ -1354,10 +1374,9 @@ app.post('/api/v1/workspace/members', requireSameOrigin, requireSession, async (
   }
 
   let emailSent = false;
-  if (isPending && mailer) {
+  if (isPending && (resendApiKey || mailer)) {
     try {
-      await mailer.sendMail({
-        from: process.env.SMTP_FROM,
+      await sendAppEmail({
         to: email,
         subject: `Invitation to ${workspace.name}`,
         text: `You have been invited to join ${workspace.name} on ClientoraHQ Recorder. Create and verify an account using this email address to join. The invitation expires in 7 days.`,
